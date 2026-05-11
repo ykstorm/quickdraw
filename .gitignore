@@ -1,4 +1,6 @@
 node_modules/
 dist/
-api_calls.jsonl
+.env
 *.log
+.DS_Store
+coverage/
