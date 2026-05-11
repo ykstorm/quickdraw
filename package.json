@@ -1,0 +1,26 @@
+{
+  "name": "stream-bench",
+  "version": "1.0.0",
+  "description": "LLM streaming benchmark toolkit — measures TTFT, TPS, guardrail overhead",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "bench": "ts-node bin/run.ts",
+    "bench:dry": "DRY_RUN=true ts-node bin/run.ts"
+  },
+  "keywords": [
+    "llm",
+    "benchmark",
+    "streaming"
+  ],
+  "author": "ykstorm",
+  "license": "MIT",
+  "dependencies": {
+    "anthropic": "^0.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
+  }
+}
