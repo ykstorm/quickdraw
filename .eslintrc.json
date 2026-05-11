@@ -1,0 +1,4 @@
+{
+  "extends": "@typescript-eslint/recommended",
+  "ignorePatterns": ["node_modules/**", "dist/**", "coverage/**"]
+}
