@@ -99,4 +99,4 @@ See [`experiments.md`](./experiments.md) for full raw data.
 
 ## License
 
-Apache 2.0 — see [LICENSE](./LICENSE).
+MIT — see [LICENSE](LICENSE).
