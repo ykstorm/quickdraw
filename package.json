@@ -1,30 +1,44 @@
 {
-  "name": "stream-bench",
+  "name": "@ykstorm/quickdraw",
   "version": "1.0.0",
-  "description": "LLM streaming benchmark toolkit — measures TTFT, TPS, guardrail overhead",
-  "main": "src/index.ts",
+  "description": "Benchmark LLM streaming. TTFT, TPS, cost ceiling, nightly dashboard.",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "quickdraw": "./dist/bin/cli.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist", "bin"],
   "scripts": {
-    "build": "tsc --noEmit",
+    "build": "tsup src/index.ts bin/cli.ts --format cjs,esm --clean",
     "bench": "ts-node bin/run.ts",
     "bench:dry": "DRY_RUN=true ts-node bin/run.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "lint": "eslint src --max-warnings=0",
+    "dashboard": "tsx bin/dashboard.ts"
   },
-  "keywords": [
-    "llm",
-    "benchmark",
-    "streaming"
-  ],
-  "author": "ykstorm",
-  "license": "MIT",
+  "keywords": ["llm","benchmark","streaming","ttft","tps","openai","anthropic","ai","performance"],
+  "homepage": "https://quickdraw.lakshyaraj.dev",
+  "repository": "github:ykstorm/quickdraw",
+  "author": "Lakshyaraj Singh Rao <raolakshyaraj@gmail.com>",
+  "license": "Apache-2.0",
   "dependencies": {
-    "anthropic": "^0.0.0"
+    "@anthropic-ai/sdk": "^0.30.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^25.6.2",
     "commander": "^14.0.3",
     "ts-node": "^10.9.2",
+    "tsup": "^8.0.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.3",
     "vitest": "^4.1.6"
