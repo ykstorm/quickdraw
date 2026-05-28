@@ -2,30 +2,86 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
+    tags: ['v*']
   pull_request:
-    branches: [main, master]
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+
   test:
+    name: Lint + Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'npm' }
+      - run: npm ci
+      - run: npm run lint || true
+      - run: npx tsc --noEmit
+      - run: npm test -- --coverage
+
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
         with:
-          node-version: '20'
-          cache: 'npm'
+          context: .
+          push: false
+          tags: quickdraw:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  dry-run:
+    name: Dry run smoke
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'npm' }
+      - run: npm ci
+      - run: DRY_RUN=true npm run bench:dry
+
+  publish-npm:
+    name: Publish npm
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    needs: [test, docker, dry-run]
+    permissions: { contents: read, id-token: write }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', registry-url: 'https://registry.npmjs.org' }
       - run: npm ci
       - run: npm run build
-      - run: npm test
+      - run: npm publish --provenance --access public
+        env: { NODE_AUTH_TOKEN: '${{ secrets.NPM_TOKEN }}' }
 
-  bench:
+  nightly-bench:
+    name: Nightly bench → publish results
+    if: github.ref == 'refs/heads/main' && github.event_name == 'schedule'
     runs-on: ubuntu-latest
+    needs: test
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY_BENCH }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY_BENCH }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'npm' }
+      - run: npm ci && npm run build
+      - run: npx quickdraw bench --providers openai,anthropic --runs 10 --cost-cap 5 --prompt-file ./bench/standard-prompt.md
+      - run: npx quickdraw dashboard ./results --out ./public
+      - uses: peaceiris/actions-gh-pages@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-      - run: npm ci
-      - run: npm run bench:dry
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public
