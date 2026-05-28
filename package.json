@@ -15,7 +15,10 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "files": ["dist", "bin"],
+  "files": [
+    "dist",
+    "bin"
+  ],
   "scripts": {
     "build": "tsup src/index.ts bin/cli.ts --format cjs,esm --clean",
     "bench": "ts-node bin/run.ts",
@@ -25,7 +28,17 @@
     "lint": "eslint src --max-warnings=0",
     "dashboard": "tsx bin/dashboard.ts"
   },
-  "keywords": ["llm","benchmark","streaming","ttft","tps","openai","anthropic","ai","performance"],
+  "keywords": [
+    "llm",
+    "benchmark",
+    "streaming",
+    "ttft",
+    "tps",
+    "openai",
+    "anthropic",
+    "ai",
+    "performance"
+  ],
   "homepage": "https://quickdraw.lakshyaraj.dev",
   "repository": "github:ykstorm/quickdraw",
   "author": "Lakshyaraj Singh Rao <raolakshyaraj@gmail.com>",
@@ -36,11 +49,13 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^25.6.2",
+    "@vitest/coverage-v8": "^1.6.1",
     "commander": "^14.0.3",
+    "eslint": "^9.39.4",
     "ts-node": "^10.9.2",
     "tsup": "^8.0.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.3",
-    "vitest": "^4.1.6"
+    "vitest": "^4.1.7"
   }
 }
