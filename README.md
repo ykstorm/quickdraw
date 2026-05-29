@@ -13,13 +13,7 @@ Live dashboard with fresh numbers every morning: **[quickdraw.lakshyaraj.dev](ht
 
 ## How this started
 
-Week six of homesty.ai. The marketing on Anthropic's site said `claude-haiku-4-5` was faster than `gpt-4o-mini`. I'd been on gpt-4o-mini since launch. The pricing was comparable. The latency claim was the only reason to consider switching.
-
-I switched. Two days of live traffic later, p50 perceived latency had gone UP by about 80ms. Buyers were noticing. I opened our streaming logs and realized the issue: total latency was lower on Claude, but the chunk shape was different. Claude was sending fewer, larger chunks — TTFT was actually worse, and on mobile the perceived feel was choppier even though total bytes arrived sooner.
-
-I'd trusted marketing copy without measuring. The TTFT graph my eye actually cared about wasn't on any vendor's docs page.
-
-Quickdraw is the toolkit I built so I wouldn't have to trust marketing again.
+LLM provider marketing benchmarks don't match your traffic. Quickdraw measures TTFT, TPS, guardrail overhead, and dollar cost across providers, on your prompts, with a hard cost ceiling so you never accidentally burn $42 on a stuck loop.
 
 ---
 
@@ -179,7 +173,7 @@ Apache License 2.0 — see [LICENSE](LICENSE).
 
 ## Provenance
 
-Built to answer a single question at [homesty.ai](https://homesty.ai): when we switched providers, did p50 TTFT actually improve, or did I just trust marketing? Quickdraw gave the answer in 4 minutes (turns out: I was wrong). Now the same toolkit publishes daily numbers across providers, no SaaS, no account.
+Built after a real provider-switch where marketing latency claims didn't match traffic measurements. Quickdraw answers the question in 4 minutes so you don't have to trust marketing copy.
 
 ## Author
 
