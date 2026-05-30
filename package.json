@@ -1,6 +1,6 @@
 {
-  "name": "@ykstorm/quickdraw",
-  "version": "1.0.0",
+  "name": "@ykstormsorg/quickdraw",
+  "version": "1.0.1",
   "description": "Benchmark LLM streaming. TTFT, TPS, cost ceiling, nightly dashboard.",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -56,5 +56,8 @@
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.3",
     "vitest": "^4.1.7"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
