@@ -2,12 +2,12 @@
 
 **Benchmark LLM streaming. TTFT, TPS, $/1K tokens. Across providers, on your prompts, with a hard cost ceiling.**
 
-[![npm](https://img.shields.io/npm/v/@ykstorm/quickdraw?label=npm)](https://npmjs.com/package/@ykstorm/quickdraw)
+![npm](https://img.shields.io/npm/v/@ykstormsorg/quickdraw.svg)
 [![CI](https://github.com/ykstorm/quickdraw/actions/workflows/ci.yml/badge.svg)](https://github.com/ykstorm/quickdraw/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Live results](https://img.shields.io/badge/results-quickdraw.lakshyaraj.dev-1a73e8)](https://quickdraw.lakshyaraj.dev)
+[![Live results](https://img.shields.io/badge/results-GitHub%20Pages-1a73e8)](https://github.com/ykstorm/quickdraw/actions)
 
-Live dashboard with fresh numbers every morning: **[quickdraw.lakshyaraj.dev](https://quickdraw.lakshyaraj.dev)**
+Live dashboard with fresh numbers every morning (coming soon): **[GitHub Actions](https://github.com/ykstorm/quickdraw/actions)**
 
 ---
 
@@ -35,7 +35,7 @@ LLM provider marketing benchmarks don't match your traffic. Quickdraw measures T
 | You want this | Use |
 |---|---|
 | TTFT/TPS measured on your prompts, from your region, on any provider | Quickdraw |
-| Eval correctness of LLM outputs (golden dataset, judge) | [Goldset](https://goldset.lakshyaraj.dev) |
+| Eval correctness of LLM outputs (golden dataset, judge) | [Goldset](https://github.com/ykstorm/goldset) |
 | Production observability of every LLM call | Helicone, LangFuse |
 | Model quality benchmarks (MMLU, HELM, MT-Bench) | Standard harnesses |
 | LLM router / gateway with auto-failover | LiteLLM, Portkey |
@@ -162,7 +162,7 @@ CI runs lint → typecheck → tests → docker build → dry-run bench. Nightly
 ## Limits
 
 - Not a model quality benchmark. HELM/MMLU/MT-Bench for that.
-- Not a regression-blocker. Pair with [Goldset](https://goldset.lakshyaraj.dev) for that.
+- Not a regression-blocker. Pair with [Goldset](https://github.com/ykstorm/goldset) for that.
 - Streaming-format adapters only for OpenAI SSE and Anthropic at v1.0. Bedrock and Vertex land in v1.2.
 
 ---
