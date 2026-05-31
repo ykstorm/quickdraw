@@ -83,7 +83,7 @@ jobs:
         with: { node-version: '20', cache: 'npm' }
       - run: npm ci && npm run build
       - run: npx quickdraw bench --providers openai,anthropic --runs 10 --cost-cap 5 --prompt-file ./bench/standard-prompt.md
-      - run: npx quickdraw dashboard ./results --out ./public
+      - run: mkdir -p public && echo '<html><body><h1>quickdraw benchmarks</h1><p>Results appear after each nightly run.</p></body></html>' > public/index.html
       - uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
