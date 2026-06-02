@@ -1,8 +1,10 @@
 # Quickdraw
 
-**Benchmark LLM streaming. TTFT, TPS, $/1K tokens. Across providers, on your prompts, with a hard cost ceiling.**
+**Benchmark LLM streaming — TTFT, TPS, $/1K tokens. Across providers, on your prompts, with a hard cost ceiling.**
 
-CLI + library for measuring time-to-first-token and tokens-per-second when streaming from OpenAI or Anthropic. Runs your prompts against live models, captures the metrics, and stops when a cost ceiling is hit.
+[![CI](https://github.com/ykstorm/quickdraw/actions/workflows/ci.yml/badge.svg)](https://github.com/ykstorm/quickdraw/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/@ykstormsorg/quickdraw)](https://www.npmjs.com/package/@ykstormsorg/quickdraw)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 ---
 
@@ -44,7 +46,7 @@ flowchart LR
 
 ---
 
-## Usage
+## Quick start
 
 ```bash
 # Install
@@ -57,7 +59,23 @@ quickdraw bench --providers openai,anthropic --runs 3 --cost-cap 2
 DRY_RUN=true quickdraw bench --providers openai --runs 1
 ```
 
-**Library mode:**
+### Try locally
+
+```bash
+git clone https://github.com/ykstorm/quickdraw.git
+cd quickdraw
+npm install
+npm test                    # vitest suite
+DRY_RUN=true npm run bench  # dry run against mock infra
+# Then with real keys:
+export OPENAI_API_KEY=sk-...
+export ANTHROPIC_API_KEY=sk-ant-...
+npm run bench               # live against OpenAI + Anthropic
+```
+
+---
+
+## Library mode
 
 ```typescript
 import { runBenchmark } from '@ykstormsorg/quickdraw'
@@ -97,19 +115,9 @@ const results = await runBenchmark({
 
 ---
 
-## Try locally
+## Contributing
 
-```bash
-git clone https://github.com/ykstorm/quickdraw.git
-cd quickdraw
-npm install
-npm test                    # vitest suite
-DRY_RUN=true npm run bench  # dry run against mock infra
-# Then with real keys:
-export OPENAI_API_KEY=sk-...
-export ANTHROPIC_API_KEY=sk-ant-...
-npm run bench               # live against OpenAI + Anthropic
-```
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to get involved.
 
 ---
 

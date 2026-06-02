@@ -1,0 +1,22 @@
+name: Feature request
+description: Suggest a new feature for Quickdraw
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Feature description
+        A clear description of the feature you're requesting.
+
+        ## Problem it solves
+        Why is this useful? What problem does it solve?
+
+        ## Proposed solution
+        How you envision it working.
+
+        ## Alternatives considered
+        Any other approaches you've considered.
+
+        ## Additional context
+        Anything else: mockups, links to related issues, etc.
