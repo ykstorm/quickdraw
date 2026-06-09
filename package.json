@@ -44,7 +44,7 @@
   "author": "Lakshyaraj Singh Rao <raolakshyaraj@gmail.com>",
   "license": "Apache-2.0",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.30.0"
+    "@anthropic-ai/sdk": "^0.103.0"
   },
   "devDependencies": {
     "@types/node": "^25.6.2",
