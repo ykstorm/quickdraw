@@ -18,4 +18,4 @@ COPY --from=builder --chown=quickdraw:nodejs /app/dist ./dist
 COPY --from=builder --chown=quickdraw:nodejs /app/bin ./bin
 COPY --chown=quickdraw:nodejs package.json ./
 USER quickdraw
-ENTRYPOINT ["node", "dist/cli.js"]
+ENTRYPOINT ["node", "dist/bin/cli.js"]
