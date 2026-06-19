@@ -15,7 +15,6 @@ WORKDIR /app
 RUN addgroup -g 1001 nodejs && adduser -S -u 1001 quickdraw
 COPY --from=prod-deps --chown=quickdraw:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=quickdraw:nodejs /app/dist ./dist
-COPY --from=builder --chown=quickdraw:nodejs /app/bin ./bin
 COPY --chown=quickdraw:nodejs package.json ./
 USER quickdraw
 ENTRYPOINT ["node", "dist/bin/cli.js"]

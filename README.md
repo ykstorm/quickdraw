@@ -55,9 +55,19 @@ npm install -g @ykstormsorg/quickdraw
 # Run against both providers, 3 runs each, $2 hard cost cap
 quickdraw bench --providers openai,anthropic --runs 3 --cost-cap 2
 
-# Dry run (no API calls, tests infrastructure only)
+# Use your own prompt and save the full results JSON
+quickdraw bench --providers openai --runs 5 --prompt-file ./bench/standard-prompt.md --json run.json
+
+# Dry run (no API calls, prints the plan only)
 DRY_RUN=true quickdraw bench --providers openai --runs 1
+
+# Regression-diff two saved runs (exit code 2 if a regression is detected)
+quickdraw diff baseline.json candidate.json
 ```
+
+The benchmark table reports **avg / p50 / p95 / p99** for both TTFT and TPS, plus
+per-provider cost. If a required API key is missing, the CLI exits with a clean
+`Set OPENAI_API_KEY` / `Set ANTHROPIC_API_KEY` message and makes no network call.
 
 ### Try locally
 
@@ -98,19 +108,22 @@ const results = await runBenchmark({
 | Types | TypeScript |
 | Build | tsup |
 | Tests | Vitest |
-| Providers | OpenAI SDK + Anthropic SDK |
+| Providers | OpenAI + Anthropic REST streaming (raw `fetch`) |
 | License | Apache 2.0 |
-
-~403 LOC.
 
 ---
 
+## What's here now
+
+- **Percentile reporting.** TTFT and TPS are reported as avg / p50 / p95 / p99 across runs.
+- **Regression diffing.** `quickdraw diff <run1.json> <run2.json>` compares two saved runs and flags TTFT/TPS/cost regressions and success/model changes (exit code 2 when a regression is found).
+- **Exact token counts.** Token counts come from each provider's `usage` field when available, falling back to a char/4 estimate.
+- **API-key preflight.** Missing keys produce a clean `Set <ENV_VAR>` message and exit 1 — never a `Bearer undefined` 401 dump.
+
 ## What's NOT here
 
-- **No Bedrock / Vertex / Gemini support.** Only OpenAI and Anthropic v1 SDKs. Azure and local models are not wired.
-- **No nightly dashboard yet.** The nightly workflow is wired (`0 3 * * *`) but results are written to workflow logs, not a hosted dashboard. Coming soon.
-- **No percentile reporting.** Currently reports averages across runs. p50/p95/p99 require computation over `api_calls.jsonl` which isn't wired into the summary yet.
-- **No regression diffing.** `results.jsonl` is written but there's no `quickdraw diff` command to compare two benchmark runs.
+- **No Bedrock / Vertex / Gemini support.** Only OpenAI and Anthropic. Azure and local models are not wired.
+- **No hosted nightly dashboard.** The nightly workflow runs the real CLI and publishes a results page to GitHub Pages, but there is no richer dashboard UI yet.
 - **Guardrail overhead is a stub.** `guardrail_overhead_ms` is measured with a no-op callback — it doesn't run real Tripwire patterns.
 
 ---

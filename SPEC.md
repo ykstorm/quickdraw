@@ -27,21 +27,28 @@
 ```
 src/
   types.ts              — shared TypeScript interfaces
-  config.ts             — environment / config loader
+  preflight.ts          — API-key preflight (clean "Set <ENV>" errors)
   logger.ts             — APICallLogger (logs every API request/response)
-  cost-tracker.ts       — CostTracker with $2 total ceiling
-  metrics.ts            — MetricCollector (computes TTFT, TPS, overhead)
+  cost-tracker.ts       — CostTracker with a hard cost ceiling + pricing table
+  metrics.ts            — computeMetrics (TTFT, TPS, overhead)
+  stats.ts              — percentile / average / summarize (p50/p95/p99)
+  report.ts             — formatBenchTable (TTFT/TPS/cost table)
+  diff.ts               — diffRuns / formatDiff (regression diffing)
+  cli.ts                — commander CLI (bench + diff subcommands)
   providers/
     anthropic.ts        — anthropicStream() helper
     openai.ts           — openaiStream() helper
-  benchmark.ts          — CoreBenchmark runner
+  benchmark.ts          — runBenchmark runner
   index.ts              — public exports
 
 prompts/
   test-prompts.ts       — diverse benchmark prompts
 
+bench/
+  standard-prompt.md    — canonical prompt used by the nightly bench
+
 bin/
-  run.ts                — CLI entry point
+  cli.ts                — CLI entry point (thin wrapper over src/cli.ts)
 ```
 
 ## Usage
@@ -54,7 +61,7 @@ npm install
 npm run bench
 
 # Run with custom params
-npx ts-node bin/run.ts --runs 5 --prompt "Explain quantum entanglement"
+npx quickdraw bench --providers openai --runs 5 --prompt-file ./bench/standard-prompt.md
 
 # Programmatic
 import { runBenchmark } from './src/index'
