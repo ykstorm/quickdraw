@@ -1,0 +1,40 @@
+name: Bug report
+description: Report a bug in Quickdraw
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Bug description
+        A clear description of the bug.
+
+        ## Steps to reproduce
+        1.
+        2.
+        3.
+
+        ## Expected behavior
+        What you expected to happen.
+
+        ## Actual behavior
+        What actually happened.
+
+        ## Environment
+        - Node.js version:
+        - OS:
+        - Provider SDK version:
+  - type: input
+    id: dry-run-output
+    attributes:
+      label: DRY_RUN output
+      description: Paste output of `DRY_RUN=true npm run bench` if applicable
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Any error output or relevant log lines
+    validations:
+      required: false

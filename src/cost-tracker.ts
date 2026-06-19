@@ -1,11 +1,18 @@
 export interface CostConfig {
+  model: string
   input_cost_per_million: number  // USD
   output_cost_per_million: number  // USD
 }
 
-const PROVIDER_COSTS: Record<string, CostConfig> = {
-  anthropic: { input_cost_per_million: 0.15, output_cost_per_million: 1.50 },
-  openai:    { input_cost_per_million: 0.15, output_cost_per_million: 0.60 },
+/**
+ * Per-provider pricing, USD per 1,000,000 tokens.
+ *
+ * Anthropic Haiku is `claude-haiku-4-5` at $1.00 / $5.00 per M (current model).
+ * OpenAI default benchmark model is gpt-4o-mini at $0.15 / $0.60 per M.
+ */
+export const PROVIDER_COSTS: Record<string, CostConfig> = {
+  anthropic: { model: 'claude-haiku-4-5', input_cost_per_million: 1.0, output_cost_per_million: 5.0 },
+  openai:    { model: 'gpt-4o-mini',      input_cost_per_million: 0.15, output_cost_per_million: 0.6 },
 }
 
 export class CostTracker {

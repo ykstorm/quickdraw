@@ -1,102 +1,139 @@
-# stream-bench
+# Quickdraw
 
-**Benchmarking toolkit for LLM streaming endpoints.**  
-Measures time-to-first-token (TTFT), tokens-per-second (TPS), and guardrail overhead vs baseline. JSON Lines cost ledger with hard ceiling — every call logged, run halts before overage.
+**Benchmark LLM streaming — TTFT, TPS, $/1K tokens. Across providers, on your prompts, with a hard cost ceiling.**
+
+[![CI](https://github.com/ykstorm/quickdraw/actions/workflows/ci.yml/badge.svg)](https://github.com/ykstorm/quickdraw/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/@ykstormsorg/quickdraw)](https://www.npmjs.com/package/@ykstormsorg/quickdraw)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 ---
 
-## What it measures
+## The problem
+
+LLM SDKs give you a latency number but not a streaming breakdown. "Total time to first token" vs "time after last token" vs "throughput in tokens/sec" are different numbers that tell you different things. Quickdraw splits the stream into phases and gives you each one.
+
+---
+
+## How it works
+
+```mermaid
+flowchart LR
+    P[prompts<br/>test-prompts.ts]
+    B[BenchmarkRunner<br/>runBenchmark]
+    O[openai provider<br/>gpt-4o-mini]
+    A[anthropic provider<br/>claude-3-5-haiku]
+    M[computeMetrics<br/>ttft / tps / cost]
+    R[results.jsonl<br/>api_calls.jsonl]
+    P --> B
+    B --> O
+    B --> A
+    O --> M
+    A --> M
+    M --> R
+```
+
+`runBenchmark()` iterates over `providers[]`, streams each prompt, measures TTFT and TPS, writes `api_calls.jsonl` with raw data, and computes summary stats.
+
+**Metrics captured per run:**
 
 | Metric | Description |
-|--------|-------------|
-| **TTFT** | Time to first token — cold network latency |
-| **TPS** | Tokens per second — streaming throughput |
-| **Guardrail overhead** | Extra latency when guardrail middleware is active vs baseline |
-| **Partial delivery** | Content delivered before guardrail abort fires |
+|---|---|
+| `ttft_ms` | Milliseconds from request start to first token received |
+| `tps` | Tokens per second after first token |
+| `total_duration_ms` | Full end-to-end time |
+| `cost_usd` | Computed from token counts × provider pricing |
+| `guardrail_overhead_ms` | Time spent in per-chunk callbacks |
 
 ---
 
-## Install
+## Quick start
 
 ```bash
-npm install stream-bench
-# or
-git clone https://github.com/ykstorm/stream-bench && cd stream-bench && npm install
+# Install
+npm install -g @ykstormsorg/quickdraw
+
+# Run against both providers, 3 runs each, $2 hard cost cap
+quickdraw bench --providers openai,anthropic --runs 3 --cost-cap 2
+
+# Use your own prompt and save the full results JSON
+quickdraw bench --providers openai --runs 5 --prompt-file ./bench/standard-prompt.md --json run.json
+
+# Dry run (no API calls, prints the plan only)
+DRY_RUN=true quickdraw bench --providers openai --runs 1
+
+# Regression-diff two saved runs (exit code 2 if a regression is detected)
+quickdraw diff baseline.json candidate.json
 ```
 
----
+The benchmark table reports **avg / p50 / p95 / p99** for both TTFT and TPS, plus
+per-provider cost. If a required API key is missing, the CLI exits with a clean
+`Set OPENAI_API_KEY` / `Set ANTHROPIC_API_KEY` message and makes no network call.
 
-## Run a benchmark
+### Try locally
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
+git clone https://github.com/ykstorm/quickdraw.git
+cd quickdraw
+npm install
+npm test                    # vitest suite
+DRY_RUN=true npm run bench  # dry run against mock infra
+# Then with real keys:
 export OPENAI_API_KEY=sk-...
-
-# Run 3 calls per provider
-npm run bench
-
-# Dry run (no API calls)
-DRY_RUN=true npm run bench:dry
+export ANTHROPIC_API_KEY=sk-ant-...
+npm run bench               # live against OpenAI + Anthropic
 ```
 
 ---
 
-## What gets measured
-
-```
-BenchmarkConfig { providers, runs, guardrails }
-        │
-        ▼
-Provider clients (OpenAI, Anthropic)
-        │
-        ├──► TTFT measurement
-        ├──► TPS measurement
-        └──► Guardrail overhead (optional)
-
-CostTracker — logs every call, enforces $2 ceiling
-APICallLogger — JSON Lines output (api_calls.jsonl)
-```
-
----
-
-## Output
-
-Each run produces:
-- **`results.json`** — structured benchmark results
-- **`api_calls.jsonl`** — per-call cost + latency log
-- **Console** — human-readable summary
-
-### Cost ceiling
-
-Default ceiling: **$2.00**. Every API call is logged with cost. If ceiling is exceeded, the run halts before the next call.
-
----
-
-## Configuration
+## Library mode
 
 ```typescript
-const config: BenchmarkConfig = {
+import { runBenchmark } from '@ykstormsorg/quickdraw'
+
+const results = await runBenchmark({
   providers: ['openai', 'anthropic'],
   runs: 3,
-  guardrails: true,  // measure guardrail overhead
-}
+  guardrails: false,
+})
+// results: BenchmarkResult[] with per-provider stream metrics
 ```
 
 ---
 
-## Real benchmark numbers
+## Stack
 
-From a 2026-05-11 run (3 calls each):
+| Layer | Choice |
+|---|---|
+| Runtime | Node.js 18+ |
+| Types | TypeScript |
+| Build | tsup |
+| Tests | Vitest |
+| Providers | OpenAI + Anthropic REST streaming (raw `fetch`) |
+| License | Apache 2.0 |
 
-| Provider | Model | Avg TTFT | Avg TPS | Guardrail overhead |
-|----------|-------|----------|---------|-------------------|
-| OpenAI | gpt-4o-mini | ~800ms | ~120 tok/s | <50ms |
-| Anthropic | claude-3-5-haiku | ~600ms | ~140 tok/s | <50ms |
+---
 
-See [`experiments.md`](./experiments.md) for full raw data.
+## What's here now
+
+- **Percentile reporting.** TTFT and TPS are reported as avg / p50 / p95 / p99 across runs.
+- **Regression diffing.** `quickdraw diff <run1.json> <run2.json>` compares two saved runs and flags TTFT/TPS/cost regressions and success/model changes (exit code 2 when a regression is found).
+- **Exact token counts.** Token counts come from each provider's `usage` field when available, falling back to a char/4 estimate.
+- **API-key preflight.** Missing keys produce a clean `Set <ENV_VAR>` message and exit 1 — never a `Bearer undefined` 401 dump.
+
+## What's NOT here
+
+- **No Bedrock / Vertex / Gemini support.** Only OpenAI and Anthropic. Azure and local models are not wired.
+- **No hosted nightly dashboard.** The nightly workflow runs the real CLI and publishes a results page to GitHub Pages, but there is no richer dashboard UI yet.
+- **Guardrail overhead is a stub.** `guardrail_overhead_ms` is measured with a no-op callback — it doesn't run real Tripwire patterns.
+
+---
+
+## Contributing
+
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to get involved.
 
 ---
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Apache 2.0 — see [LICENSE](LICENSE).

@@ -1,0 +1,8 @@
+{ "results": [
+  { "provider":"openai","model":"gpt-4o-mini","success":true,"runs":3,"cost_usd":0.0012,
+    "metrics":{"ttft_ms":120,"tps":48,"total_duration_ms":1100,"token_count":90,"guardrail_overhead_ms":0,"api_calls":3},
+    "ttft":{"avg":120,"p50":118,"p95":140,"p99":150},"tps":{"avg":48,"p50":48,"p95":52,"p99":55} },
+  { "provider":"anthropic","model":"claude-haiku-4-5","success":true,"runs":3,"cost_usd":0.0040,
+    "metrics":{"ttft_ms":200,"tps":40,"total_duration_ms":1300,"token_count":100,"guardrail_overhead_ms":0,"api_calls":3},
+    "ttft":{"avg":200,"p50":195,"p95":230,"p99":240},"tps":{"avg":40,"p50":40,"p95":44,"p99":46} }
+]}

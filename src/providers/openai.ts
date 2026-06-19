@@ -1,25 +1,32 @@
 import { ProviderStreamResult } from '../types'
+import { assertApiKey } from '../preflight'
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY
-const MODEL = 'gpt-4o-mini'
+export const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini'
 
 export async function openaiStream(
   prompt: string,
-  onChunk?: (text: string) => void
+  onChunk?: (text: string) => void,
+  model: string = DEFAULT_OPENAI_MODEL
 ): Promise<ProviderStreamResult> {
+  // Preflight: never send "Bearer undefined".
+  assertApiKey('openai')
+  const apiKey = process.env.OPENAI_API_KEY as string
+
   const start = Date.now()
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      'Authorization': `Bearer ${apiKey}`,
       'content-type': 'application/json',
     },
     body: JSON.stringify({
-      model: MODEL,
+      model,
       max_tokens: 512,
       messages: [{ role: 'user', content: prompt }],
       stream: true,
+      // Ask OpenAI to emit a final usage chunk with exact token counts.
+      stream_options: { include_usage: true },
     }),
   })
 
@@ -35,6 +42,8 @@ export async function openaiStream(
   let fullText = ''
   let ttft_ms = 0
   let tokenCount = 0
+  let usagePromptTokens = 0
+  let usageCompletionTokens = 0
 
   while (true) {
     const { done, value } = await reader.read()
@@ -57,6 +66,11 @@ export async function openaiStream(
           fullText += text
           if (onChunk) onChunk(text)
         }
+        // Final usage chunk (choices is typically empty here).
+        if (event.usage) {
+          if (event.usage.prompt_tokens != null) usagePromptTokens = event.usage.prompt_tokens
+          if (event.usage.completion_tokens != null) usageCompletionTokens = event.usage.completion_tokens
+        }
       } catch {
         // skip malformed lines
       }
@@ -64,14 +78,18 @@ export async function openaiStream(
   }
 
   const duration_ms = Date.now() - start
-  const estimatedPromptTokens = Math.ceil(prompt.length / 4)
+
+  const haveUsage = usagePromptTokens > 0 || usageCompletionTokens > 0
+  const prompt_tokens = usagePromptTokens > 0 ? usagePromptTokens : Math.ceil(prompt.length / 4)
+  const completion_tokens = usageCompletionTokens > 0 ? usageCompletionTokens : tokenCount
 
   return {
     text: fullText,
     tokens: tokenCount,
     ttft_ms,
     duration_ms,
-    prompt_tokens: estimatedPromptTokens,
-    completion_tokens: tokenCount,
+    prompt_tokens,
+    completion_tokens,
+    token_source: haveUsage ? 'usage' : 'estimate',
   }
 }
