@@ -4,3 +4,10 @@ dist/
 *.log
 .DS_Store
 coverage/
+
+# Benchmark run artifacts (generated)
+api_calls.jsonl
+results.json
+run.json
+*.tgz
+public/

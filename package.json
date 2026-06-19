@@ -1,7 +1,7 @@
 {
   "name": "@ykstormsorg/quickdraw",
-  "version": "1.0.1",
-  "description": "Benchmark LLM streaming. TTFT, TPS, cost ceiling, nightly dashboard.",
+  "version": "1.0.2",
+  "description": "Benchmark LLM streaming — TTFT, TPS, p50/p95/p99, cost ceiling, and regression diffing across OpenAI and Anthropic.",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -10,23 +10,24 @@
   },
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
-      "require": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "require": "./dist/index.js"
     }
   },
   "files": [
-    "dist",
-    "bin"
+    "dist"
   ],
   "scripts": {
-    "build": "tsup src/index.ts bin/cli.ts --format cjs,esm --clean",
-    "bench": "ts-node bin/run.ts",
-    "bench:dry": "DRY_RUN=true ts-node bin/run.ts",
+    "build": "tsup",
+    "bench": "ts-node bin/cli.ts bench",
+    "bench:dry": "cross-env DRY_RUN=true ts-node bin/cli.ts bench --providers openai --runs 1",
+    "diff": "ts-node bin/cli.ts diff",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
-    "lint": "eslint src --max-warnings=0",
-    "dashboard": "tsx bin/dashboard.ts"
+    "lint": "eslint src bin --max-warnings=0",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "llm",
@@ -44,12 +45,12 @@
   "author": "Lakshyaraj Singh Rao <raolakshyaraj@gmail.com>",
   "license": "Apache-2.0",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.30.0"
+    "commander": "^14.0.3"
   },
   "devDependencies": {
     "@types/node": "^25.6.2",
     "@vitest/coverage-v8": "^4.1.7",
-    "commander": "^14.0.3",
+    "cross-env": "^7.0.3",
     "eslint": "^10.5.0",
     "ts-node": "^10.9.2",
     "tsup": "^8.0.0",

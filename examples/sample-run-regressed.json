@@ -1,0 +1,7 @@
+{ "results": [
+  { "provider":"openai","model":"gpt-4o-mini","success":true,"runs":3,"cost_usd":0.0013,
+    "metrics":{"ttft_ms":250,"tps":30,"total_duration_ms":1500,"token_count":90,"guardrail_overhead_ms":0,"api_calls":3},
+    "ttft":{"avg":250,"p50":245,"p95":280,"p99":300},"tps":{"avg":30,"p50":30,"p95":33,"p99":35} },
+  { "provider":"anthropic","model":"claude-haiku-4-5","success":false,"runs":0,"cost_usd":0,"error":"Anthropic API error 529: overloaded",
+    "metrics":{"ttft_ms":0,"tps":0,"total_duration_ms":0,"token_count":0,"guardrail_overhead_ms":0,"api_calls":3} }
+]}
