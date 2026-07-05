@@ -21,7 +21,7 @@ flowchart LR
     P[prompts<br/>test-prompts.ts]
     B[BenchmarkRunner<br/>runBenchmark]
     O[openai provider<br/>gpt-4o-mini]
-    A[anthropic provider<br/>claude-3-5-haiku]
+    A[anthropic provider<br/>claude-haiku-4-5]
     M[computeMetrics<br/>ttft / tps / cost]
     R[results.jsonl<br/>api_calls.jsonl]
     P --> B
@@ -112,6 +112,25 @@ const results = await runBenchmark({
 | License | Apache 2.0 |
 
 ---
+
+## Measured (live)
+
+Quickdraw benchmarking itself against Claude Haiku, measured in CI on a GitHub
+runner (`claude-haiku-4-5`, 3 runs, the committed
+[`bench/standard-prompt.md`](bench/standard-prompt.md), a ~230-token completion):
+
+| Metric | avg | p50 | p95 / p99 |
+|---|---|---|---|
+| TTFT (ms) | 775 | **739** | 1143 |
+| TPS (tokens/sec) | 87.2 | **85.6** | 90.9 |
+
+Cost for the whole 3-run sweep: **$0.0037** (well under the default `$2` cap).
+TPS is computed from the provider's `usage` output-token count — not a raw count
+of streamed SSE frames, which undercounts throughput badly when one frame
+carries several tokens. Reproduce by triggering the `live-anthropic` job in
+[`live-bench.yml`](.github/workflows/live-bench.yml) (manual dispatch only, so
+fork PRs can't reach the key), or locally with `ANTHROPIC_API_KEY=… npm run bench
+-- --providers anthropic`.
 
 ## What's here now
 
