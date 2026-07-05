@@ -107,10 +107,13 @@ export async function runBenchmark(config: BenchmarkConfig): Promise<BenchmarkRe
         })
         costTracker.addCost(cost)
 
+        // TPS must use real generated tokens (provider `usage`), not the raw
+        // count of streamed SSE delta events — one delta can carry several
+        // tokens, so event-counting understates throughput badly.
         const metrics = computeMetrics(
           streamResult.ttft_ms,
           streamResult.duration_ms,
-          streamResult.tokens,
+          streamResult.completion_tokens,
           guardrail_overhead_ms
         )
         metrics.api_calls = logger.count

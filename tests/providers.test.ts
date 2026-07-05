@@ -110,6 +110,32 @@ describe('anthropicStream', () => {
     expect((init.headers as Record<string, string>)['x-api-key']).toBe('sk-ant-test')
   })
 
+  it('reassembles a data line split across read() chunk boundaries', async () => {
+    // The whole SSE body arrives as arbitrary byte slices that cut a `data:`
+    // line in half. A naive per-chunk split would drop both halves; the carry
+    // buffer must stitch them back so the delta and usage still register.
+    const raw =
+      'data: {"type":"message_start","message":{"usage":{"input_tokens":20,"output_tokens":0}}}\n' +
+      'data: {"type":"content_block_delta","delta":{"text":"Hello world"}}\n' +
+      'data: {"type":"message_delta","usage":{"output_tokens":42}}\n' +
+      'data: [DONE]\n'
+    const encoder = new TextEncoder()
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        // Split at an offset that lands inside the content_block_delta line.
+        const cut = raw.indexOf('Hello world') + 3
+        controller.enqueue(encoder.encode(raw.slice(0, cut)))
+        controller.enqueue(encoder.encode(raw.slice(cut)))
+        controller.close()
+      },
+    })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, body, text: async () => raw } as unknown as Response))
+
+    const r = await anthropicStream('hi')
+    expect(r.text).toBe('Hello world')
+    expect(r.completion_tokens).toBe(42)
+  })
+
   it('uses a custom model id when provided', async () => {
     const fetchMock = vi.fn().mockResolvedValue(sseResponse(['data: [DONE]\n']))
     vi.stubGlobal('fetch', fetchMock)

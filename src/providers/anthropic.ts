@@ -46,39 +46,46 @@ export async function anthropicStream(
   let usagePromptTokens = 0
   let usageCompletionTokens = 0
 
+  // A single reader.read() returns an arbitrary byte slice, not a line-aligned
+  // SSE frame — a `data:` line can straddle two reads. Carry the trailing
+  // partial line in `buffer` and only parse complete (newline-terminated)
+  // lines; otherwise split events are dropped and throughput undercounts.
+  let buffer = ''
+
+  const handleLine = (line: string): void => {
+    if (!line.startsWith('data: ')) return
+    const data = line.slice(6)
+    if (data === '[DONE]') return
+    try {
+      const event = JSON.parse(data)
+      if (event.type === 'message_start') {
+        // Prompt-token usage is on the initial message.
+        const u = event.message?.usage
+        if (u?.input_tokens != null) usagePromptTokens = u.input_tokens
+        if (u?.output_tokens != null) usageCompletionTokens = u.output_tokens
+      } else if (event.type === 'content_block_delta' && event.delta?.text) {
+        if (ttft_ms === 0) ttft_ms = Date.now() - start
+        tokenCount++
+        fullText += event.delta.text
+        if (onChunk) onChunk(event.delta.text)
+      } else if (event.type === 'message_delta' && event.usage?.output_tokens != null) {
+        // Final cumulative output-token count.
+        usageCompletionTokens = event.usage.output_tokens
+      }
+    } catch {
+      // skip malformed lines
+    }
+  }
+
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
-
-    const chunk = decoder.decode(value, { stream: true })
-    const lines = chunk.split('\n')
-
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue
-      const data = line.slice(6)
-      if (data === '[DONE]') continue
-
-      try {
-        const event = JSON.parse(data)
-        if (event.type === 'message_start') {
-          // Prompt-token usage is on the initial message.
-          const u = event.message?.usage
-          if (u?.input_tokens != null) usagePromptTokens = u.input_tokens
-          if (u?.output_tokens != null) usageCompletionTokens = u.output_tokens
-        } else if (event.type === 'content_block_delta' && event.delta?.text) {
-          if (ttft_ms === 0) ttft_ms = Date.now() - start
-          tokenCount++
-          fullText += event.delta.text
-          if (onChunk) onChunk(event.delta.text)
-        } else if (event.type === 'message_delta' && event.usage?.output_tokens != null) {
-          // Final cumulative output-token count.
-          usageCompletionTokens = event.usage.output_tokens
-        }
-      } catch {
-        // skip malformed lines
-      }
-    }
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? '' // keep the last, possibly-incomplete line
+    for (const line of lines) handleLine(line)
   }
+  if (buffer) handleLine(buffer) // flush any final line with no trailing newline
 
   const duration_ms = Date.now() - start
 

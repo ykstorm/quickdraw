@@ -45,37 +45,44 @@ export async function openaiStream(
   let usagePromptTokens = 0
   let usageCompletionTokens = 0
 
+  // A single reader.read() returns an arbitrary byte slice, not a line-aligned
+  // SSE frame — a `data:` line can straddle two reads. Carry the trailing
+  // partial line in `buffer` and only parse complete (newline-terminated)
+  // lines; otherwise split events are dropped and throughput undercounts.
+  let buffer = ''
+
+  const handleLine = (line: string): void => {
+    if (!line.startsWith('data: ')) return
+    const data = line.slice(6)
+    if (data === '[DONE]') return
+    try {
+      const event = JSON.parse(data)
+      if (event.choices?.[0]?.delta?.content) {
+        if (ttft_ms === 0) ttft_ms = Date.now() - start
+        const text = event.choices[0].delta.content
+        tokenCount++
+        fullText += text
+        if (onChunk) onChunk(text)
+      }
+      // Final usage chunk (choices is typically empty here).
+      if (event.usage) {
+        if (event.usage.prompt_tokens != null) usagePromptTokens = event.usage.prompt_tokens
+        if (event.usage.completion_tokens != null) usageCompletionTokens = event.usage.completion_tokens
+      }
+    } catch {
+      // skip malformed lines
+    }
+  }
+
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
-
-    const chunk = decoder.decode(value, { stream: true })
-    const lines = chunk.split('\n')
-
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue
-      const data = line.slice(6)
-      if (data === '[DONE]') continue
-
-      try {
-        const event = JSON.parse(data)
-        if (event.choices?.[0]?.delta?.content) {
-          if (ttft_ms === 0) ttft_ms = Date.now() - start
-          const text = event.choices[0].delta.content
-          tokenCount++
-          fullText += text
-          if (onChunk) onChunk(text)
-        }
-        // Final usage chunk (choices is typically empty here).
-        if (event.usage) {
-          if (event.usage.prompt_tokens != null) usagePromptTokens = event.usage.prompt_tokens
-          if (event.usage.completion_tokens != null) usageCompletionTokens = event.usage.completion_tokens
-        }
-      } catch {
-        // skip malformed lines
-      }
-    }
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? '' // keep the last, possibly-incomplete line
+    for (const line of lines) handleLine(line)
   }
+  if (buffer) handleLine(buffer) // flush any final line with no trailing newline
 
   const duration_ms = Date.now() - start
 
