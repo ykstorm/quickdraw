@@ -1,0 +1,40 @@
+name: Live bench (Anthropic)
+
+# Paid, opt-in: runs the real quickdraw CLI against Claude Haiku and captures
+# live TTFT / TPS / p50-p99 / cost. Manual dispatch ONLY — never on push/PR — so
+# fork PRs can't reach the secret and every paid run is deliberate. Anthropic
+# only (no OpenAI key needed), 3 runs, hard --cost-cap so spend can't run away.
+# The key is passed as an env secret and read from process.env; never logged.
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: 'Runs against Haiku'
+        default: '3'
+      cost_cap:
+        description: 'Hard USD ceiling'
+        default: '0.5'
+
+jobs:
+  live-anthropic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'npm' }
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+      - name: Benchmark Claude Haiku (live)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: >-
+          node dist/bin/cli.js bench
+          --providers anthropic
+          --runs ${{ github.event.inputs.runs }}
+          --cost-cap ${{ github.event.inputs.cost_cap }}
+          --prompt-file ./bench/standard-prompt.md
+          --json ./bench/live-results.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: live-anthropic
+          path: ./bench/live-results.json
