@@ -14,6 +14,12 @@ LLM SDKs give you a latency number but not a streaming breakdown. "Total time to
 
 ---
 
+## Why this exists
+
+I built Quickdraw to settle a provider decision for [Homesty.ai](https://homesty.ai)'s chat with primary data instead of published averages. The split mattered: the provider with worse total time had better first-token latency — the number a waiting user actually feels — and that changed the choice. Two design rules carried over from that decision: every summary stat re-derives from the raw `api_calls.jsonl` (an unauditable benchmark is an opinion), and the cost ceiling is a hard abort, not a warning — a benchmark run must never become a billing incident. The `guardrail_overhead_ms` metric exists because I needed to price per-chunk stream callbacks ([tripwire](https://github.com/ykstorm/tripwire)'s check cost) and no off-the-shelf benchmark measures callback dispatch at all.
+
+---
+
 ## How it works
 
 ```mermaid
