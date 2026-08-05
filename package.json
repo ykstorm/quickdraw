@@ -49,16 +49,19 @@
   },
   "devDependencies": {
     "@types/node": "^25.6.2",
-    "@vitest/coverage-v8": "^4.1.7",
+    "@vitest/coverage-v8": "^4.1.10",
     "cross-env": "^7.0.3",
     "eslint": "^10.5.0",
     "ts-node": "^10.9.2",
     "tsup": "^8.0.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.3",
-    "vitest": "^4.1.7"
+    "vitest": "^4.1.10"
   },
   "publishConfig": {
     "access": "public"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1"
   }
 }
