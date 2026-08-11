@@ -19,8 +19,8 @@ jobs:
   live-anthropic:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: '20', cache: 'npm' }
       - run: npm install --no-audit --no-fund
       - run: npm run build
@@ -34,7 +34,7 @@ jobs:
           --cost-cap ${{ github.event.inputs.cost_cap }}
           --prompt-file ./bench/standard-prompt.md
           --json ./bench/live-results.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: live-anthropic
           path: ./bench/live-results.json
