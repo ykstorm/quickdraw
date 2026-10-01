@@ -19,7 +19,7 @@ function sampleResult(over: Partial<BenchmarkResult> = {}): BenchmarkResult {
   return {
     provider: 'openai',
     model: 'gpt-4o-mini',
-    metrics: { ttft_ms: 100, tps: 50, total_duration_ms: 1000, token_count: 100, guardrail_overhead_ms: 0, api_calls: 1 },
+    metrics: { ttft_ms: 100, tps: 50, total_duration_ms: 1000, token_count: 100 },
     cost_usd: 0.001,
     success: true,
     runs: 1,
@@ -82,6 +82,19 @@ describe('cli: bench dry-run', () => {
     expect(text).toMatch(/Total planned calls: 4/)
     expect(bench).not.toHaveBeenCalled()
   })
+
+  it('treats DRY_RUN=1 as truthy', async () => {
+    const h = harness()
+    const bench = vi.fn()
+    const code = await run(['bench', '--providers', 'openai', '--runs', '1'], {
+      ...h.deps,
+      env: { DRY_RUN: '1' },
+      runBenchmark: bench,
+    })
+    expect(code).toBe(0)
+    expect(h.out.join('\n')).toMatch(/DRY_RUN=true/)
+    expect(bench).not.toHaveBeenCalled()
+  })
 })
 
 describe('cli: bench live (mocked runBenchmark)', () => {
@@ -109,10 +122,26 @@ describe('cli: bench live (mocked runBenchmark)', () => {
       ...h.deps,
       env: { OPENAI_API_KEY: 'sk', ANTHROPIC_API_KEY: 'sk' },
       readFile: () => '  hello from file  ',
+      statFile: () => ({ isFile: true, size: 19 }),
       runBenchmark: bench,
     })
     expect(code).toBe(0)
     expect(bench.mock.calls[0][0].prompt).toBe('hello from file')
+  })
+
+  it('rejects a prompt file over the size limit', async () => {
+    const h = harness()
+    const bench = vi.fn()
+    const code = await run(['bench', '--runs', '1', '--prompt-file', 'BIG.md', '--max-prompt-bytes', '10'], {
+      ...h.deps,
+      env: { OPENAI_API_KEY: 'sk', ANTHROPIC_API_KEY: 'sk' },
+      readFile: () => 'x'.repeat(100),
+      statFile: () => ({ isFile: true, size: 100 }),
+      runBenchmark: bench,
+    })
+    expect(code).toBe(1)
+    expect(h.err.join('\n')).toMatch(/over the 10-byte limit/)
+    expect(bench).not.toHaveBeenCalled()
   })
 
   it('exits 1 if any provider run failed', async () => {
@@ -124,6 +153,51 @@ describe('cli: bench live (mocked runBenchmark)', () => {
       runBenchmark: bench,
     })
     expect(code).toBe(1)
+  })
+
+  it('redacts secrets from the results JSON written to disk', async () => {
+    const h = harness()
+    const written: Record<string, string> = {}
+    const bench = vi
+      .fn()
+      .mockResolvedValue([sampleResult({ success: false, error: 'auth failed for sk-live-FAKE_KEY_9999' })])
+    const code = await run(['bench', '--providers', 'openai', '--runs', '1', '--json', 'out.json'], {
+      ...h.deps,
+      env: { OPENAI_API_KEY: 'sk-test' },
+      runBenchmark: bench,
+      writeFile: (p: string, d: string) => {
+        written[p] = d
+      },
+    })
+    expect(code).toBe(1) // a failed run
+    expect(written['out.json']).toBeDefined()
+    expect(written['out.json']).not.toMatch(/sk-live-FAKE_KEY_9999/)
+    expect(written['out.json']).toMatch(/\[REDACTED\]/)
+  })
+
+  it('rejects a model with no pricing before any network call', async () => {
+    const h = harness()
+    const bench = vi.fn()
+    const code = await run(['bench', '--providers', 'openai', '--runs', '1', '--model', 'ghost-model-9'], {
+      ...h.deps,
+      env: { OPENAI_API_KEY: 'sk-test' },
+      runBenchmark: bench,
+    })
+    expect(code).toBe(1)
+    expect(h.err.join('\n')).toMatch(/No pricing on file/)
+    expect(bench).not.toHaveBeenCalled()
+  })
+
+  it('allows an unpriced model with --allow-unpriced', async () => {
+    const h = harness()
+    const bench = vi.fn().mockResolvedValue([sampleResult({ model: 'ghost-model-9' })])
+    const code = await run(
+      ['bench', '--providers', 'openai', '--runs', '1', '--model', 'ghost-model-9', '--allow-unpriced'],
+      { ...h.deps, env: { OPENAI_API_KEY: 'sk-test' }, runBenchmark: bench }
+    )
+    expect(code).toBe(0)
+    expect(bench).toHaveBeenCalledTimes(1)
+    expect(bench.mock.calls[0][0].allowUnpriced).toBe(true)
   })
 
   it('rejects an unknown provider', async () => {
@@ -171,5 +245,16 @@ describe('cli: diff', () => {
       readFile: () => '[]',
     })
     expect(code).toBe(1)
+  })
+
+  it('rejects a non-numeric --threshold', async () => {
+    const h = harness()
+    const files: Record<string, string> = { 'a.json': run1, 'b.json': run1 }
+    const code = await run(['diff', 'a.json', 'b.json', '--threshold', 'abc'], {
+      ...h.deps,
+      readFile: (p: string) => files[p],
+    })
+    expect(code).toBe(1)
+    expect(h.err.join('\n')).toMatch(/--threshold must be a number/)
   })
 })

@@ -1,6 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { APICallLogEntry } from './types'
+import { redactSecrets } from './providers/http-error'
 
 /**
  * Resolve the JSONL log path. Honors QUICKDRAW_LOG_FILE, otherwise writes
@@ -11,17 +12,27 @@ function logFilePath(): string {
   return process.env.QUICKDRAW_LOG_FILE || path.join(process.cwd(), 'api_calls.jsonl')
 }
 
+export interface APICallLoggerOptions {
+  /** Target file; defaults to QUICKDRAW_LOG_FILE or ./api_calls.jsonl. */
+  file?: string
+  /** Clear any existing file on construction so a run starts fresh. */
+  truncate?: boolean
+}
+
 export class APICallLogger {
   private _count = 0
   private readonly file: string
 
-  constructor(file: string = logFilePath()) {
-    this.file = file
+  constructor(opts: APICallLoggerOptions = {}) {
+    this.file = opts.file ?? logFilePath()
+    if (opts.truncate && fs.existsSync(this.file)) fs.unlinkSync(this.file)
   }
 
   log(entry: APICallLogEntry): void {
     this._count++
-    const line = JSON.stringify(entry) + '\n'
+    // Redact any secret that reached a field (e.g. a key echoed in an error)
+    // before it is written to the on-disk ledger.
+    const line = redactSecrets(JSON.stringify(entry)) + '\n'
     fs.appendFileSync(this.file, line, 'utf-8')
   }
 
@@ -32,22 +43,4 @@ export class APICallLogger {
   get path(): string {
     return this.file
   }
-}
-
-// Singleton logger for the benchmark run
-let _logger: APICallLogger | null = null
-
-export function getLogger(): APICallLogger {
-  if (!_logger) {
-    const file = logFilePath()
-    _logger = new APICallLogger(file)
-    // Clear previous log so each benchmark run starts fresh.
-    if (fs.existsSync(file)) fs.unlinkSync(file)
-  }
-  return _logger
-}
-
-/** Test/utility hook to reset the singleton. */
-export function resetLogger(): void {
-  _logger = null
 }

@@ -1,6 +1,8 @@
 # Quickdraw
 
-**Benchmark LLM streaming — TTFT, TPS, $/1K tokens. Across providers, on your prompts, with a hard cost ceiling.**
+Benchmark LLM streaming across OpenAI and Anthropic: time to first token (TTFT),
+tokens per second (TPS), p50/p95/p99, and cost, on your prompts, with a hard cost
+ceiling.
 
 [![CI](https://github.com/ykstorm/quickdraw/actions/workflows/ci.yml/badge.svg)](https://github.com/ykstorm/quickdraw/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/@ykstormsorg/quickdraw)](https://www.npmjs.com/package/@ykstormsorg/quickdraw)
@@ -8,15 +10,18 @@
 
 ---
 
-## The problem
+## What it does
 
-LLM SDKs give you a latency number but not a streaming breakdown. "Total time to first token" vs "time after last token" vs "throughput in tokens/sec" are different numbers that tell you different things. Quickdraw splits the stream into phases and gives you each one.
+LLM SDKs report a single latency number, not a streaming breakdown. Time to the
+first token, time generating the rest, and throughput in tokens per second are
+different numbers that answer different questions. Quickdraw splits a streamed
+response into those phases, reports each one as avg / p50 / p95 / p99 across
+runs, prices the run from provider token counts, and stops before a configured
+cost ceiling.
 
----
-
-## Why this exists
-
-I built Quickdraw to settle a provider decision for [Homesty.ai](https://homesty.ai)'s chat with primary data instead of published averages. The split mattered: the provider with worse total time had better first-token latency — the number a waiting user actually feels — and that changed the choice. Two design rules carried over from that decision: every summary stat re-derives from the raw `api_calls.jsonl` (an unauditable benchmark is an opinion), and the cost ceiling is a hard abort, not a warning — a benchmark run must never become a billing incident. The `guardrail_overhead_ms` metric exists because I needed to price per-chunk stream callbacks ([tripwire](https://github.com/ykstorm/tripwire)'s check cost) and no off-the-shelf benchmark measures callback dispatch at all.
+Two design choices are worth calling out. Every summary number re-derives from
+the raw `api_calls.jsonl` ledger, so a result can be audited. The cost ceiling is
+enforced before each call, not after, so a run cannot overshoot its budget.
 
 ---
 
@@ -47,8 +52,7 @@ flowchart LR
 | `ttft_ms` | Milliseconds from request start to first token received |
 | `tps` | Tokens per second after first token |
 | `total_duration_ms` | Full end-to-end time |
-| `cost_usd` | Computed from token counts × provider pricing |
-| `guardrail_overhead_ms` | Time spent in per-chunk callbacks |
+| `cost_usd` | Computed from token counts and model pricing |
 
 ---
 
@@ -99,7 +103,6 @@ import { runBenchmark } from '@ykstormsorg/quickdraw'
 const results = await runBenchmark({
   providers: ['openai', 'anthropic'],
   runs: 3,
-  guardrails: false,
 })
 // results: BenchmarkResult[] with per-provider stream metrics
 ```
@@ -119,46 +122,52 @@ const results = await runBenchmark({
 
 ---
 
-## Measured (live)
+## A sample measurement
 
-Quickdraw benchmarking itself against Claude Haiku, measured in CI on a GitHub
-runner (`claude-haiku-4-5`, 3 runs, the committed
-[`bench/standard-prompt.md`](bench/standard-prompt.md), a ~230-token completion):
+Measured once on 2026-07-05 from a GitHub-hosted runner (region not recorded),
+3 calls to `claude-haiku-4-5` with the committed
+[`bench/standard-prompt.md`](bench/standard-prompt.md) (a ~230-token completion):
 
 | Metric | avg | p50 | p95 / p99 |
 |---|---|---|---|
-| TTFT (ms) | 775 | **739** | 1143 |
-| TPS (tokens/sec) | 87.2 | **85.6** | 90.9 |
+| TTFT (ms) | 775 | 739 | 1143 |
+| TPS (tokens/sec) | 87.2 | 85.6 | 90.9 |
 
-Cost for the whole 3-run sweep: **$0.0037** (well under the default `$2` cap).
-TPS is computed from the provider's `usage` output-token count — not a raw count
-of streamed SSE frames, which undercounts throughput badly when one frame
-carries several tokens. Reproduce by triggering the `live-anthropic` job in
+Cost for the 3 calls: $0.0037. Read this as a point sample of one network path
+on one day, not a provider comparison or a stable benchmark. With n=3 the "p95"
+and "p99" are just the slowest of the three calls, and the numbers move with the
+runner's region, the time of day, and provider load. Run the numbers for your
+own path: trigger the `live-anthropic` job in
 [`live-bench.yml`](.github/workflows/live-bench.yml) (manual dispatch only, so
-fork PRs can't reach the key), or locally with `ANTHROPIC_API_KEY=… npm run bench
--- --providers anthropic`.
+fork PRs cannot reach the key), or locally with `ANTHROPIC_API_KEY=... npm run
+bench -- --providers anthropic`.
 
-## What's here now
+TPS is computed from the provider's `usage` output-token count, not a raw count
+of streamed SSE frames (which undercounts throughput when one frame carries
+several tokens). When `usage` is absent, both token counts fall back to a char/4
+estimate.
 
-- **Percentile reporting.** TTFT and TPS are reported as avg / p50 / p95 / p99 across runs.
-- **Regression diffing.** `quickdraw diff <run1.json> <run2.json>` compares two saved runs and flags TTFT/TPS/cost regressions and success/model changes (exit code 2 when a regression is found).
-- **Exact token counts.** Token counts come from each provider's `usage` field when available, falling back to a char/4 estimate.
-- **API-key preflight.** Missing keys produce a clean `Set <ENV_VAR>` message and exit 1 — never a `Bearer undefined` 401 dump.
+## Supported
 
-## What's NOT here
+- Percentile reporting: TTFT and TPS as avg / p50 / p95 / p99 across runs.
+- Regression diffing: `quickdraw diff <run1.json> <run2.json>` compares two saved runs and flags TTFT/TPS/cost regressions and success/model changes (exit code 2 when a regression is found).
+- Token counts from each provider's `usage` field when available, falling back to a char/4 estimate.
+- API-key preflight: a missing key produces a clean `Set <ENV_VAR>` message and exit 1, not a `Bearer undefined` 401 dump.
 
-- **No Bedrock / Vertex / Gemini support.** Only OpenAI and Anthropic. Azure and local models are not wired.
-- **No hosted nightly dashboard.** The nightly workflow runs the real CLI and publishes a results page to GitHub Pages, but there is no richer dashboard UI yet.
-- **Guardrail overhead is a stub.** `guardrail_overhead_ms` is measured with a no-op callback — it doesn't run real Tripwire patterns.
+## Not supported
+
+- No Bedrock, Vertex, Gemini, Azure, or local models. Only OpenAI and Anthropic.
+- No hosted dashboard. Results are a JSON file and a terminal table, with no web UI.
+- No guardrail-overhead measurement. A per-chunk `onChunk` callback is available for streaming consumption, but its dispatch cost is not benchmarked.
 
 ---
 
 ## Contributing
 
-Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to get involved.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and conventions.
 
 ---
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE).
+Apache 2.0, see [LICENSE](LICENSE).

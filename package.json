@@ -1,7 +1,7 @@
 {
   "name": "@ykstormsorg/quickdraw",
-  "version": "1.0.4",
-  "description": "Benchmark LLM streaming — TTFT, TPS, p50/p95/p99, cost ceiling, and regression diffing across OpenAI and Anthropic.",
+  "version": "1.0.5",
+  "description": "Benchmark LLM streaming: TTFT, TPS, p50/p95/p99, cost ceiling, and regression diffing across OpenAI and Anthropic.",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -57,6 +57,9 @@
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.3",
     "vitest": "^4.1.10"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "publishConfig": {
     "access": "public"

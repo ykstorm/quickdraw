@@ -6,8 +6,10 @@ dist/
 coverage/
 
 # Benchmark run artifacts (generated)
-api_calls.jsonl
+*.jsonl
 results.json
 run.json
+results/
+bench/live-results.json
 *.tgz
 public/

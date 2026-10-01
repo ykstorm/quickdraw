@@ -75,6 +75,29 @@ describe('openaiStream', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sseResponse(['nope'], false, 401)))
     await expect(openaiStream('hi')).rejects.toThrow(/OpenAI API error 401/)
   })
+
+  it('never leaks an API key echoed in a 401 error body', async () => {
+    const leaky = JSON.stringify({
+      error: { type: 'invalid_request_error', message: 'bad key sk-proj-SHOULD_NOT_APPEAR_1234' },
+    })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sseResponse([leaky], false, 401)))
+    await expect(openaiStream('hi')).rejects.toThrow(/OpenAI API error 401/)
+    await openaiStream('hi').catch((e: Error) => {
+      expect(e.message).not.toMatch(/sk-proj-SHOULD_NOT_APPEAR_1234/)
+    })
+  })
+
+  it('maps a request timeout to a clean failed-run error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() => {
+        const e = new Error('The operation was aborted')
+        e.name = 'TimeoutError'
+        return Promise.reject(e)
+      })
+    )
+    await expect(openaiStream('hi')).rejects.toThrow(/timed out/)
+  })
 })
 
 describe('anthropicStream', () => {

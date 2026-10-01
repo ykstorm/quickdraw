@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import * as fs from 'fs'
+import * as os from 'os'
+import * as path from 'path'
 import type { ProviderStreamResult } from '../src/types'
+import { APICallLogger } from '../src/logger'
+import { percentile } from '../src/stats'
 
 // Mock both providers so the orchestrator never touches the network.
 const openaiStream = vi.fn()
@@ -66,17 +71,61 @@ describe('runBenchmark', () => {
     expect(openaiStream).toHaveBeenCalledWith('CUSTOM PROMPT', undefined, 'gpt-4o-mini')
   })
 
-  it('halts when the cost ceiling is exceeded', async () => {
-    // Each anthropic run: 1M input + 1M output => $6.00, cap is $1 -> first run trips it.
-    anthropicStream.mockResolvedValue(
-      streamResult({ prompt_tokens: 1_000_000, completion_tokens: 1_000_000 })
-    )
-    const results = await runBenchmark({ providers: ['anthropic'], runs: 5, guardrails: false, costCap: 1 })
-    const r = results[0]
-    expect(r.success).toBe(false)
-    expect(r.error).toMatch(/Cost ceiling exceeded/)
-    // It should stop after the first failing run, not run all 5.
+  it('refuses the call entirely when even one reservation exceeds the cap', async () => {
+    // Haiku max-output reservation (~$0.00256) alone exceeds a $0.001 cap, so the
+    // ceiling is hit BEFORE any network call — the provider is never invoked.
+    anthropicStream.mockResolvedValue(streamResult())
+    const results = await runBenchmark({ providers: ['anthropic'], runs: 5, guardrails: false, costCap: 0.001 })
+    expect(anthropicStream).toHaveBeenCalledTimes(0)
+    expect(results[0].success).toBe(false)
+    expect(results[0].error).toMatch(/cost ceiling/i)
+  })
+
+  it('runs one call, then refuses the next when the budget is spent', async () => {
+    // Reservation per haiku call (~$0.00256) fits a $0.0027 cap once; after the
+    // first call settles at its real (much smaller) cost, the second reservation
+    // pushes total over the cap and is refused before the call is made.
+    anthropicStream.mockResolvedValue(streamResult({ prompt_tokens: 10, completion_tokens: 50 }))
+    const results = await runBenchmark({
+      providers: ['anthropic'],
+      runs: 3,
+      guardrails: false,
+      costCap: 0.0027,
+      prompt: 'hi',
+    })
     expect(anthropicStream).toHaveBeenCalledTimes(1)
+    const r = results[0]
+    expect(r.success).toBe(true)
+    expect(r.runs).toBe(1)
+    // Settled cost is the real completion cost (10 in + 50 out on haiku), not the
+    // reservation and not a fabricated $0.
+    expect(r.cost_usd).toBeCloseTo(0.00026, 6)
+  })
+
+  it('writes a ledger whose ttft p50 re-derives to the aggregated result', async () => {
+    const file = path.join(os.tmpdir(), `quickdraw-ledger-${Date.now()}.jsonl`)
+    const logger = new APICallLogger({ file, truncate: true })
+    try {
+      openaiStream
+        .mockResolvedValueOnce(streamResult({ ttft_ms: 100 }))
+        .mockResolvedValueOnce(streamResult({ ttft_ms: 200 }))
+        .mockResolvedValueOnce(streamResult({ ttft_ms: 300 }))
+      const results = await runBenchmark({ providers: ['openai'], runs: 3 }, { logger })
+
+      const lines = fs.readFileSync(file, 'utf-8').trim().split('\n').map((l) => JSON.parse(l))
+      expect(lines).toHaveLength(3)
+      // Every ledger line carries the fields needed to re-derive the summary.
+      for (const l of lines) {
+        expect(typeof l.ttft_ms).toBe('number')
+        expect(typeof l.duration_ms).toBe('number')
+        expect(typeof l.completion_tokens).toBe('number')
+        expect(['usage', 'estimate']).toContain(l.token_source)
+      }
+      const ttftFromLedger = percentile(lines.map((l) => l.ttft_ms), 50)
+      expect(ttftFromLedger).toBe(results[0].ttft?.p50)
+    } finally {
+      if (fs.existsSync(file)) fs.unlinkSync(file)
+    }
   })
 
   it('records a failed run when the provider throws', async () => {
@@ -86,12 +135,18 @@ describe('runBenchmark', () => {
     expect(results[0].error).toMatch(/network boom/)
   })
 
-  it('runs guardrail callback path without error', async () => {
+  it('passes config.onChunk through to the provider stream', async () => {
+    const seen: string[] = []
     openaiStream.mockImplementation(async (_p: string, onChunk?: (t: string) => void) => {
       if (onChunk) onChunk('abc')
       return streamResult()
     })
-    const results = await runBenchmark({ providers: ['openai'], runs: 1, guardrails: true })
+    const results = await runBenchmark({
+      providers: ['openai'],
+      runs: 1,
+      onChunk: (t: string) => seen.push(t),
+    })
     expect(results[0].success).toBe(true)
+    expect(seen).toEqual(['abc'])
   })
 })

@@ -1,5 +1,10 @@
 import { Percentiles } from './types'
 
+/** Round to `digits` decimal places and return a number (not a string). */
+export function round(value: number, digits = 1): number {
+  return parseFloat(value.toFixed(digits))
+}
+
 /**
  * Nearest-rank percentile over a numeric sample.
  * Returns 0 for an empty sample. `p` is in [0, 100].
@@ -20,11 +25,10 @@ export function average(values: number[]): number {
 
 /** Compute avg/p50/p95/p99 for a sample, each rounded to `digits`. */
 export function summarize(values: number[], digits = 1): Percentiles {
-  const round = (n: number) => parseFloat(n.toFixed(digits))
   return {
-    avg: round(average(values)),
-    p50: round(percentile(values, 50)),
-    p95: round(percentile(values, 95)),
-    p99: round(percentile(values, 99)),
+    avg: round(average(values), digits),
+    p50: round(percentile(values, 50), digits),
+    p95: round(percentile(values, 95), digits),
+    p99: round(percentile(values, 99), digits),
   }
 }
