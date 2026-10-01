@@ -40,11 +40,33 @@ function delta(before: number, after: number): MetricDelta {
  * bare array or a `{ results: [...] }` envelope.
  */
 export function parseRunFile(raw: string): BenchmarkResult[] {
-  const data = JSON.parse(raw)
-  const arr = Array.isArray(data) ? data : data.results
+  let data: unknown
+  try {
+    data = JSON.parse(raw)
+  } catch {
+    throw new Error('Run file is not valid JSON.')
+  }
+  const arr = Array.isArray(data) ? data : (data as { results?: unknown })?.results
   if (!Array.isArray(arr)) {
     throw new Error('Run file must be a JSON array of results (or { results: [...] }).')
   }
+  // Shape-check each entry so a malformed file fails with a clean Error rather
+  // than a downstream TypeError when fields are read.
+  arr.forEach((entry, i) => {
+    const e = entry as Record<string, unknown>
+    if (!e || typeof e !== 'object') {
+      throw new Error(`Run file entry ${i} is not an object.`)
+    }
+    if (typeof e.provider !== 'string' || typeof e.model !== 'string') {
+      throw new Error(`Run file entry ${i} is missing string "provider"/"model" fields.`)
+    }
+    if (typeof e.metrics !== 'object' || e.metrics === null) {
+      throw new Error(`Run file entry ${i} is missing a "metrics" object.`)
+    }
+    if (typeof e.cost_usd !== 'number') {
+      throw new Error(`Run file entry ${i} is missing a numeric "cost_usd".`)
+    }
+  })
   return arr as BenchmarkResult[]
 }
 

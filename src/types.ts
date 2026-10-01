@@ -10,6 +10,8 @@ export interface BenchmarkConfig {
   prompt?: string
   /** Override the model id per provider. */
   model?: string
+  /** Cost unpriced models at $0 instead of refusing to run. Defaults to false. */
+  allowUnpriced?: boolean
 }
 
 export interface APICallLogEntry {
@@ -17,8 +19,14 @@ export interface APICallLogEntry {
   provider: string
   model: string
   latency_ms: number
+  /** Time to first token, ms. 0 for a failed call. */
+  ttft_ms: number
+  /** End-to-end stream duration, ms. 0 for a failed call. */
+  duration_ms: number
   prompt_tokens: number
   completion_tokens: number
+  /** Where the token counts came from: provider `usage` or a char/4 estimate. */
+  token_source: 'usage' | 'estimate'
   cost_usd: number
   success: boolean
   error?: string

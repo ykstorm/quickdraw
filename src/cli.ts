@@ -2,12 +2,16 @@ import { Command } from 'commander'
 import * as fs from 'fs'
 import * as path from 'path'
 import { BenchmarkConfig, BenchmarkResult, ProviderName } from './types'
-import { runBenchmark } from './benchmark'
+import { runBenchmark, resolveModel } from './benchmark'
+import { pricingFor } from './cost-tracker'
+import { redactSecrets } from './providers/http-error'
 import { missingKeys } from './preflight'
 import { formatBenchTable } from './report'
 import { diffRuns, formatDiff, parseRunFile } from './diff'
 
 const VALID_PROVIDERS: ProviderName[] = ['openai', 'anthropic']
+/** Prompt files larger than this are rejected unless --max-prompt-bytes raises it. */
+const DEFAULT_MAX_PROMPT_BYTES = 1024 * 1024
 
 export interface CliDeps {
   /** Injected for testability; defaults to the real benchmark. */
@@ -18,6 +22,8 @@ export interface CliDeps {
   /** Read a file as utf-8. Injected for testability. */
   readFile?: (path: string) => string
   writeFile?: (path: string, data: string) => void
+  /** Stat a file (isFile + byte size). Injected for testability. */
+  statFile?: (path: string) => { isFile: boolean; size: number }
 }
 
 function parseProviders(raw: string): ProviderName[] {
@@ -39,12 +45,18 @@ export async function run(argv: string[], deps: CliDeps = {}): Promise<number> {
   const env = deps.env ?? process.env
   const readFile = deps.readFile ?? ((p: string) => fs.readFileSync(p, 'utf-8'))
   const writeFile = deps.writeFile ?? ((p: string, d: string) => fs.writeFileSync(p, d, 'utf-8'))
+  const statFile =
+    deps.statFile ??
+    ((p: string) => {
+      const s = fs.statSync(p)
+      return { isFile: s.isFile(), size: s.size }
+    })
   const bench = deps.runBenchmark ?? runBenchmark
 
   const program = new Command()
   program
     .name('quickdraw')
-    .description('Benchmark LLM streaming — TTFT, TPS, $/1K tokens, with a hard cost cap.')
+    .description('Benchmark LLM streaming: TTFT, TPS, p50/p95/p99, and cost, with a hard cost cap.')
     .exitOverride() // throw instead of calling process.exit, so we control codes
     .configureOutput({
       writeOut: (s) => out(s.replace(/\n$/, '')),
@@ -61,6 +73,8 @@ export async function run(argv: string[], deps: CliDeps = {}): Promise<number> {
     .option('-c, --cost-cap <usd>', 'Hard cost ceiling in USD', '2')
     .option('-m, --model <id>', 'Override model id for every provider')
     .option('-f, --prompt-file <path>', 'File whose contents are used as the prompt')
+    .option('--max-prompt-bytes <n>', 'Reject a prompt file larger than this', String(DEFAULT_MAX_PROMPT_BYTES))
+    .option('--allow-unpriced', 'Run models with no pricing on file (cost reported as $0, not capped)')
     .option('--json <path>', 'Write full results JSON to this path')
     .action(async (opts) => {
       const providers = parseProviders(opts.providers)
@@ -69,10 +83,34 @@ export async function run(argv: string[], deps: CliDeps = {}): Promise<number> {
       if (!Number.isFinite(runs) || runs < 1) throw new Error(`--runs must be a positive integer (got ${opts.runs})`)
       if (!Number.isFinite(costCap) || costCap <= 0) throw new Error(`--cost-cap must be a positive number (got ${opts.costCap})`)
 
+      const maxPromptBytes = parseInt(opts.maxPromptBytes, 10)
+      if (!Number.isFinite(maxPromptBytes) || maxPromptBytes < 1) {
+        throw new Error(`--max-prompt-bytes must be a positive integer (got ${opts.maxPromptBytes})`)
+      }
+
       let prompt: string | undefined
       if (opts.promptFile) {
+        const stat = statFile(opts.promptFile)
+        if (!stat.isFile) throw new Error(`Prompt path is not a file: ${opts.promptFile}`)
+        if (stat.size > maxPromptBytes) {
+          throw new Error(`Prompt file is ${stat.size} bytes, over the ${maxPromptBytes}-byte limit: ${opts.promptFile}`)
+        }
         prompt = readFile(opts.promptFile).trim()
         if (!prompt) throw new Error(`Prompt file is empty: ${opts.promptFile}`)
+      }
+
+      const allowUnpriced = Boolean(opts.allowUnpriced)
+
+      // Validate pricing for every model BEFORE any network call, unless the
+      // caller opted into unpriced runs.
+      if (!allowUnpriced) {
+        const unpriced = [...new Set(providers.map((p) => resolveModel(p, opts.model)))].filter((m) => !pricingFor(m))
+        if (unpriced.length > 0) {
+          throw new Error(
+            `No pricing on file for model(s): ${unpriced.join(', ')}. ` +
+              `Add them to MODEL_PRICING or pass --allow-unpriced.`
+          )
+        }
       }
 
       const dryRun = env.DRY_RUN === 'true'
@@ -101,6 +139,7 @@ export async function run(argv: string[], deps: CliDeps = {}): Promise<number> {
         costCap,
         prompt,
         model: opts.model,
+        allowUnpriced,
       }
 
       out(`Running benchmark: providers=${providers.join(',')} runs=${runs} cost-cap=$${costCap}`)
@@ -111,7 +150,8 @@ export async function run(argv: string[], deps: CliDeps = {}): Promise<number> {
       if (opts.json) {
         const dir = path.dirname(opts.json)
         if (dir && dir !== '.' && !fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-        writeFile(opts.json, JSON.stringify({ results }, null, 2))
+        // Redact any secret that reached a result field before writing to disk.
+        writeFile(opts.json, redactSecrets(JSON.stringify({ results }, null, 2)))
         out(`\nResults written to ${opts.json}`)
       }
 

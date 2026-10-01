@@ -1,6 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { APICallLogEntry } from './types'
+import { redactSecrets } from './providers/http-error'
 
 /**
  * Resolve the JSONL log path. Honors QUICKDRAW_LOG_FILE, otherwise writes
@@ -21,7 +22,9 @@ export class APICallLogger {
 
   log(entry: APICallLogEntry): void {
     this._count++
-    const line = JSON.stringify(entry) + '\n'
+    // Redact any secret that reached a field (e.g. a key echoed in an error)
+    // before it is written to the on-disk ledger.
+    const line = redactSecrets(JSON.stringify(entry)) + '\n'
     fs.appendFileSync(this.file, line, 'utf-8')
   }
 

@@ -28,6 +28,17 @@ describe('parseRunFile', () => {
   it('rejects non-array content', () => {
     expect(() => parseRunFile(JSON.stringify({ nope: 1 }))).toThrow()
   })
+  it('rejects invalid JSON with a clean Error', () => {
+    expect(() => parseRunFile('{not json')).toThrow(/not valid JSON/)
+  })
+  it('rejects a malformed entry with a clean Error, not a TypeError', () => {
+    // Missing metrics/cost_usd — reading these downstream would throw TypeError.
+    expect(() => parseRunFile(JSON.stringify([{ provider: 'openai', model: 'gpt-4o-mini' }]))).toThrow(
+      /entry 0 is missing a "metrics"/
+    )
+    expect(() => parseRunFile(JSON.stringify([{ foo: 1 }]))).toThrow(/entry 0 is missing string/)
+    expect(() => parseRunFile(JSON.stringify(['notanobject']))).toThrow(/entry 0/)
+  })
 })
 
 describe('diffRuns', () => {

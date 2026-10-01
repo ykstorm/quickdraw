@@ -119,24 +119,30 @@ const results = await runBenchmark({
 
 ---
 
-## Measured (live)
+## A sample measurement
 
-Quickdraw benchmarking itself against Claude Haiku, measured in CI on a GitHub
-runner (`claude-haiku-4-5`, 3 runs, the committed
-[`bench/standard-prompt.md`](bench/standard-prompt.md), a ~230-token completion):
+Measured once on 2026-07-05 from a GitHub-hosted runner (region not recorded),
+3 calls to `claude-haiku-4-5` with the committed
+[`bench/standard-prompt.md`](bench/standard-prompt.md) (a ~230-token completion):
 
 | Metric | avg | p50 | p95 / p99 |
 |---|---|---|---|
-| TTFT (ms) | 775 | **739** | 1143 |
-| TPS (tokens/sec) | 87.2 | **85.6** | 90.9 |
+| TTFT (ms) | 775 | 739 | 1143 |
+| TPS (tokens/sec) | 87.2 | 85.6 | 90.9 |
 
-Cost for the whole 3-run sweep: **$0.0037** (well under the default `$2` cap).
-TPS is computed from the provider's `usage` output-token count — not a raw count
-of streamed SSE frames, which undercounts throughput badly when one frame
-carries several tokens. Reproduce by triggering the `live-anthropic` job in
+Cost for the 3 calls: $0.0037. Read this as a point sample of one network path
+on one day, not a provider comparison or a stable benchmark. With n=3 the "p95"
+and "p99" are just the slowest of the three calls, and the numbers move with the
+runner's region, the time of day, and provider load. Run the numbers for your
+own path: trigger the `live-anthropic` job in
 [`live-bench.yml`](.github/workflows/live-bench.yml) (manual dispatch only, so
-fork PRs can't reach the key), or locally with `ANTHROPIC_API_KEY=… npm run bench
--- --providers anthropic`.
+fork PRs cannot reach the key), or locally with `ANTHROPIC_API_KEY=... npm run
+bench -- --providers anthropic`.
+
+TPS is computed from the provider's `usage` output-token count, not a raw count
+of streamed SSE frames (which undercounts throughput when one frame carries
+several tokens). When `usage` is absent, both token counts fall back to a char/4
+estimate.
 
 ## What's here now
 
@@ -148,7 +154,7 @@ fork PRs can't reach the key), or locally with `ANTHROPIC_API_KEY=… npm run be
 ## What's NOT here
 
 - **No Bedrock / Vertex / Gemini support.** Only OpenAI and Anthropic. Azure and local models are not wired.
-- **No hosted nightly dashboard.** The nightly workflow runs the real CLI and publishes a results page to GitHub Pages, but there is no richer dashboard UI yet.
+- **No hosted dashboard.** Results are a JSON file and a terminal table; there is no web UI.
 - **Guardrail overhead is a stub.** `guardrail_overhead_ms` is measured with a no-op callback — it doesn't run real Tripwire patterns.
 
 ---

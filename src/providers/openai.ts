@@ -1,5 +1,7 @@
 import { ProviderStreamResult } from '../types'
 import { assertApiKey } from '../preflight'
+import { MAX_OUTPUT_TOKENS } from '../cost-tracker'
+import { sanitizeHttpError, requestTimeoutMs, isAbortError } from './http-error'
 
 export const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini'
 
@@ -14,25 +16,32 @@ export async function openaiStream(
 
   const start = Date.now()
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 512,
-      messages: [{ role: 'user', content: prompt }],
-      stream: true,
-      // Ask OpenAI to emit a final usage chunk with exact token counts.
-      stream_options: { include_usage: true },
-    }),
-  })
+  let response: Response
+  try {
+    response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: MAX_OUTPUT_TOKENS,
+        messages: [{ role: 'user', content: prompt }],
+        stream: true,
+        // Ask OpenAI to emit a final usage chunk with exact token counts.
+        stream_options: { include_usage: true },
+      }),
+      signal: AbortSignal.timeout(requestTimeoutMs()),
+    })
+  } catch (err) {
+    if (isAbortError(err)) throw new Error(`OpenAI request timed out after ${requestTimeoutMs()}ms`)
+    throw err
+  }
 
   if (!response.ok) {
     const err = await response.text()
-    throw new Error(`OpenAI API error ${response.status}: ${err}`)
+    throw new Error(sanitizeHttpError('OpenAI', response.status, err))
   }
 
   if (!response.body) throw new Error('No response body')
@@ -88,7 +97,9 @@ export async function openaiStream(
 
   const haveUsage = usagePromptTokens > 0 || usageCompletionTokens > 0
   const prompt_tokens = usagePromptTokens > 0 ? usagePromptTokens : Math.ceil(prompt.length / 4)
-  const completion_tokens = usageCompletionTokens > 0 ? usageCompletionTokens : tokenCount
+  // Fallback completion estimate uses generated text length (char/4), matching
+  // the prompt-token estimate — not the raw SSE delta-event count.
+  const completion_tokens = usageCompletionTokens > 0 ? usageCompletionTokens : Math.ceil(fullText.length / 4)
 
   return {
     text: fullText,

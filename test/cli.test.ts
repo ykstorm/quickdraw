@@ -109,10 +109,26 @@ describe('cli: bench live (mocked runBenchmark)', () => {
       ...h.deps,
       env: { OPENAI_API_KEY: 'sk', ANTHROPIC_API_KEY: 'sk' },
       readFile: () => '  hello from file  ',
+      statFile: () => ({ isFile: true, size: 19 }),
       runBenchmark: bench,
     })
     expect(code).toBe(0)
     expect(bench.mock.calls[0][0].prompt).toBe('hello from file')
+  })
+
+  it('rejects a prompt file over the size limit', async () => {
+    const h = harness()
+    const bench = vi.fn()
+    const code = await run(['bench', '--runs', '1', '--prompt-file', 'BIG.md', '--max-prompt-bytes', '10'], {
+      ...h.deps,
+      env: { OPENAI_API_KEY: 'sk', ANTHROPIC_API_KEY: 'sk' },
+      readFile: () => 'x'.repeat(100),
+      statFile: () => ({ isFile: true, size: 100 }),
+      runBenchmark: bench,
+    })
+    expect(code).toBe(1)
+    expect(h.err.join('\n')).toMatch(/over the 10-byte limit/)
+    expect(bench).not.toHaveBeenCalled()
   })
 
   it('exits 1 if any provider run failed', async () => {
@@ -124,6 +140,51 @@ describe('cli: bench live (mocked runBenchmark)', () => {
       runBenchmark: bench,
     })
     expect(code).toBe(1)
+  })
+
+  it('redacts secrets from the results JSON written to disk', async () => {
+    const h = harness()
+    const written: Record<string, string> = {}
+    const bench = vi
+      .fn()
+      .mockResolvedValue([sampleResult({ success: false, error: 'auth failed for sk-live-FAKE_KEY_9999' })])
+    const code = await run(['bench', '--providers', 'openai', '--runs', '1', '--json', 'out.json'], {
+      ...h.deps,
+      env: { OPENAI_API_KEY: 'sk-test' },
+      runBenchmark: bench,
+      writeFile: (p: string, d: string) => {
+        written[p] = d
+      },
+    })
+    expect(code).toBe(1) // a failed run
+    expect(written['out.json']).toBeDefined()
+    expect(written['out.json']).not.toMatch(/sk-live-FAKE_KEY_9999/)
+    expect(written['out.json']).toMatch(/\[REDACTED\]/)
+  })
+
+  it('rejects a model with no pricing before any network call', async () => {
+    const h = harness()
+    const bench = vi.fn()
+    const code = await run(['bench', '--providers', 'openai', '--runs', '1', '--model', 'ghost-model-9'], {
+      ...h.deps,
+      env: { OPENAI_API_KEY: 'sk-test' },
+      runBenchmark: bench,
+    })
+    expect(code).toBe(1)
+    expect(h.err.join('\n')).toMatch(/No pricing on file/)
+    expect(bench).not.toHaveBeenCalled()
+  })
+
+  it('allows an unpriced model with --allow-unpriced', async () => {
+    const h = harness()
+    const bench = vi.fn().mockResolvedValue([sampleResult({ model: 'ghost-model-9' })])
+    const code = await run(
+      ['bench', '--providers', 'openai', '--runs', '1', '--model', 'ghost-model-9', '--allow-unpriced'],
+      { ...h.deps, env: { OPENAI_API_KEY: 'sk-test' }, runBenchmark: bench }
+    )
+    expect(code).toBe(0)
+    expect(bench).toHaveBeenCalledTimes(1)
+    expect(bench.mock.calls[0][0].allowUnpriced).toBe(true)
   })
 
   it('rejects an unknown provider', async () => {

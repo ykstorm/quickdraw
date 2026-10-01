@@ -11,7 +11,10 @@
 
 **Please do NOT open a public GitHub issue for security vulnerabilities.**
 
-Instead, email the maintainer directly at: `raolakshyaraj@gmail.com`
+Report privately through GitHub's
+[private vulnerability reporting](https://github.com/ykstorm/quickdraw/security/advisories/new)
+(Security tab → "Report a vulnerability"). This keeps the report and discussion
+private until a fix ships.
 
 Include as much detail as possible:
 

@@ -1,90 +1,59 @@
-# Quickdraw — Architecture
+# Quickdraw architecture
 
-## Run flow
+Quickdraw is a small CLI with a library core. One `bench` run streams a prompt
+from each provider, measures the stream, prices it, and writes a JSONL ledger
+plus a summary. `diff` compares two saved summaries.
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant U as User / CI
-    participant Q as Quickdraw runner
-    participant CT as CostTracker
-    participant P as Provider client
-    participant L as JSONL ledger
+## Source tree
 
-    U->>Q: quickdraw bench --providers X,Y --runs 5
-    Q->>CT: init(costCap)
-    loop per provider × per run
-        Q->>CT: budget check
-        alt under cap
-            CT-->>Q: ok
-            Q->>P: open stream
-            P-->>Q: token 1 (mark TTFT)
-            P-->>Q: tokens 2..N (count TPS)
-            P-->>Q: stream end (cost)
-            Q->>L: append {ts, provider, model, ttft, tps, cost}
-            Q->>CT: charge(cost)
-        else over cap
-            CT-->>Q: HALT
-            Q-->>U: stopped (over cap) — partial results saved
-            Note over Q,U: exit non-zero
-        end
-    end
-    Q->>Q: aggregate p50, p95, mean
-    Q-->>U: results.json + summary table
+```
+src/
+  types.ts              shared interfaces
+  preflight.ts          API-key checks (clean "Set <ENV>" errors)
+  logger.ts             APICallLogger, appends the JSONL ledger (redacted)
+  cost-tracker.ts       CostTracker (reserve/settle ceiling) + model pricing
+  metrics.ts            computeMetrics (TTFT, TPS)
+  stats.ts              percentile / average / summarize (p50/p95/p99)
+  report.ts             formatBenchTable (terminal table)
+  diff.ts               parseRunFile / diffRuns / formatDiff
+  cli.ts                commander CLI (bench + diff)
+  benchmark.ts          runBenchmark orchestrator
+  index.ts              public library exports
+  providers/
+    anthropic.ts        anthropicStream() over the Messages SSE endpoint
+    openai.ts           openaiStream() over the Chat Completions SSE endpoint
+    http-error.ts       secret redaction, error sanitizing, request timeout
+
+prompts/test-prompts.ts built-in prompt rotation
+bench/standard-prompt.md canonical prompt for live runs
+bin/cli.ts              CLI entry point (thin wrapper over src/cli.ts)
 ```
 
-## Components
+## Cost ceiling
 
-| Module | Path | Responsibility |
-|---|---|---|
-| Runner | `src/runner.ts` | Orchestrates passes, aggregates results |
-| CostTracker | `src/cost.ts` | Per-call cost accounting + cap enforcement |
-| APICallLogger | `src/logger.ts` | JSON Lines ledger writer |
-| Provider adapters | `src/providers/*` | One file per provider — Anthropic, OpenAI, Bedrock |
-| Dashboard generator | `src/dashboard.ts` | Static HTML from results/*.json |
-| CLI | `bin/quickdraw.ts` | commander-based entry point |
+`CostTracker.reserve()` runs **before** a call and charges a pessimistic
+estimate (prompt estimate + `MAX_OUTPUT_TOKENS`) against the budget, throwing
+`CostCeilingError` if it would breach the ceiling (so the call is never made).
+`settle()` then swaps that reservation for the call's real cost. Because the
+reservation is added synchronously before the network call, an in-flight request
+can never overshoot the ceiling.
 
-## Why JSON Lines (not CSV, not Parquet)
+## Why JSON Lines
 
-- Append-only, crash-safe (partial line is recoverable)
-- Streamable (you don't need to load the whole file to scan recent calls)
-- Pipeable (`tail -f api_calls.jsonl | jq` works without setup)
-- Human-readable on `cat`
-- One row per call, no header drift between schema versions
+The ledger (`api_calls.jsonl`) is append-only and one row per call, so a crash
+leaves a readable partial file, `tail -f … | jq` works without setup, and every
+summary stat (TTFT/TPS percentiles, cost) re-derives from the raw rows.
 
-## Cost ceiling implementation
+## Providers
 
-```ts
-// Pseudocode
-class CostTracker {
-  spent = 0
-  cap: number
-  charge(usd: number): 'ok' | 'over_cap' {
-    if (this.spent + usd > this.cap) return 'over_cap'
-    this.spent += usd
-    return 'ok'
-  }
-}
-```
+Each provider is one file exporting a `*Stream(prompt, onChunk?, model)`
+function that returns a `ProviderStreamResult`. Token counts come from the
+provider `usage` field, falling back to a char/4 estimate. Only OpenAI and
+Anthropic are implemented.
 
-Called **before** the API call (pessimistic — assume max output). Refund the difference after the call completes (actual output tokens ≤ max). This eliminates the "I expected $1.99, hit $2.04" overshoot pattern.
+## CI
 
-## Provider adapter interface
-
-```ts
-interface Provider {
-  name: string
-  modelDefault: string
-  estimateCost(input: number, output: number, model: string): number
-  stream(prompt: string, model: string): AsyncIterable<{ token: string; finished: boolean }>
-}
-```
-
-Drop a file in `src/providers/foo.ts`, register in `src/providers/index.ts`, you support a new provider. PR-friendly.
-
-## What runs in CI vs locally
-
-- **CI (GitHub Actions)** — DRY_RUN mode (no API key needed) + nightly real bench on schedule, with a separate budget cap and a separate API key set
-- **Locally** — real runs against your own keys, full output to `./results/`
-
-CI never sees the production API key. CI nightly uses a separate `OPENAI_API_KEY_BENCH` secret with a low daily cap on the OpenAI side as a second safety net.
+CI runs lint, typecheck, tests with coverage, a build, and a `DRY_RUN` smoke of
+the built CLI (no key needed). `live-bench.yml` is a manual-dispatch paid job
+that runs the real CLI against Anthropic with a hard `--cost-cap`; it is never
+triggered by push or PR, so fork PRs cannot reach the key.

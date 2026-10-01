@@ -1,7 +1,15 @@
 export * from './types'
 export * from './benchmark'
-export { CostTracker, PROVIDER_COSTS } from './cost-tracker'
+export {
+  CostTracker,
+  MODEL_PRICING,
+  MAX_OUTPUT_TOKENS,
+  pricingFor,
+  CostCeilingError,
+  UnknownPricingError,
+} from './cost-tracker'
 export type { CostConfig } from './cost-tracker'
+export { redactSecrets, sanitizeHttpError, requestTimeoutMs } from './providers/http-error'
 export { APICallLogger, getLogger, resetLogger } from './logger'
 export { computeMetrics } from './metrics'
 export { percentile, average, summarize } from './stats'
