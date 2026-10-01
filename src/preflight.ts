@@ -5,6 +5,12 @@ export const REQUIRED_KEY: Record<ProviderName, string> = {
   anthropic: 'ANTHROPIC_API_KEY',
 }
 
+/** Truthy env-flag parse: accepts 1/true/yes/on (case-insensitive). */
+export function isTruthy(value: string | undefined): boolean {
+  if (!value) return false
+  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase())
+}
+
 export class MissingApiKeyError extends Error {
   constructor(
     public readonly provider: string,
@@ -24,7 +30,7 @@ export function assertApiKey(
   provider: ProviderName,
   env: NodeJS.ProcessEnv = process.env
 ): void {
-  if (env.DRY_RUN === 'true') return
+  if (isTruthy(env.DRY_RUN)) return
   const envVar = REQUIRED_KEY[provider]
   const value = env[envVar]
   if (!value || value.trim() === '') {
@@ -40,7 +46,7 @@ export function missingKeys(
   providers: ProviderName[],
   env: NodeJS.ProcessEnv = process.env
 ): string[] {
-  if (env.DRY_RUN === 'true') return []
+  if (isTruthy(env.DRY_RUN)) return []
   const missing: string[] = []
   for (const p of providers) {
     const envVar = REQUIRED_KEY[p]

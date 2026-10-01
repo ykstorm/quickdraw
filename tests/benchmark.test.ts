@@ -3,7 +3,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import type { ProviderStreamResult } from '../src/types'
-import { resetLogger } from '../src/logger'
+import { APICallLogger } from '../src/logger'
 import { percentile } from '../src/stats'
 
 // Mock both providers so the orchestrator never touches the network.
@@ -104,15 +104,13 @@ describe('runBenchmark', () => {
 
   it('writes a ledger whose ttft p50 re-derives to the aggregated result', async () => {
     const file = path.join(os.tmpdir(), `quickdraw-ledger-${Date.now()}.jsonl`)
-    const prev = process.env.QUICKDRAW_LOG_FILE
-    process.env.QUICKDRAW_LOG_FILE = file
-    resetLogger()
+    const logger = new APICallLogger({ file, truncate: true })
     try {
       openaiStream
         .mockResolvedValueOnce(streamResult({ ttft_ms: 100 }))
         .mockResolvedValueOnce(streamResult({ ttft_ms: 200 }))
         .mockResolvedValueOnce(streamResult({ ttft_ms: 300 }))
-      const results = await runBenchmark({ providers: ['openai'], runs: 3, guardrails: false })
+      const results = await runBenchmark({ providers: ['openai'], runs: 3 }, { logger })
 
       const lines = fs.readFileSync(file, 'utf-8').trim().split('\n').map((l) => JSON.parse(l))
       expect(lines).toHaveLength(3)
@@ -126,9 +124,6 @@ describe('runBenchmark', () => {
       const ttftFromLedger = percentile(lines.map((l) => l.ttft_ms), 50)
       expect(ttftFromLedger).toBe(results[0].ttft?.p50)
     } finally {
-      resetLogger()
-      if (prev === undefined) delete process.env.QUICKDRAW_LOG_FILE
-      else process.env.QUICKDRAW_LOG_FILE = prev
       if (fs.existsSync(file)) fs.unlinkSync(file)
     }
   })
@@ -140,12 +135,18 @@ describe('runBenchmark', () => {
     expect(results[0].error).toMatch(/network boom/)
   })
 
-  it('runs guardrail callback path without error', async () => {
+  it('passes config.onChunk through to the provider stream', async () => {
+    const seen: string[] = []
     openaiStream.mockImplementation(async (_p: string, onChunk?: (t: string) => void) => {
       if (onChunk) onChunk('abc')
       return streamResult()
     })
-    const results = await runBenchmark({ providers: ['openai'], runs: 1, guardrails: true })
+    const results = await runBenchmark({
+      providers: ['openai'],
+      runs: 1,
+      onChunk: (t: string) => seen.push(t),
+    })
     expect(results[0].success).toBe(true)
+    expect(seen).toEqual(['abc'])
   })
 })

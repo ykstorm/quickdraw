@@ -2,6 +2,7 @@ import { ProviderStreamResult } from '../types'
 import { assertApiKey } from '../preflight'
 import { MAX_OUTPUT_TOKENS } from '../cost-tracker'
 import { sanitizeHttpError, requestTimeoutMs, isAbortError } from './http-error'
+import { readSSEData } from './sse'
 
 export const DEFAULT_ANTHROPIC_MODEL = 'claude-haiku-4-5'
 const SYSTEM = 'You are a helpful assistant.'
@@ -47,24 +48,13 @@ export async function anthropicStream(
 
   if (!response.body) throw new Error('No response body')
 
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
   let fullText = ''
   let ttft_ms = 0
   let tokenCount = 0
   let usagePromptTokens = 0
   let usageCompletionTokens = 0
 
-  // A single reader.read() returns an arbitrary byte slice, not a line-aligned
-  // SSE frame — a `data:` line can straddle two reads. Carry the trailing
-  // partial line in `buffer` and only parse complete (newline-terminated)
-  // lines; otherwise split events are dropped and throughput undercounts.
-  let buffer = ''
-
-  const handleLine = (line: string): void => {
-    if (!line.startsWith('data: ')) return
-    const data = line.slice(6)
-    if (data === '[DONE]') return
+  await readSSEData(response.body, (data) => {
     try {
       const event = JSON.parse(data)
       if (event.type === 'message_start') {
@@ -84,17 +74,7 @@ export async function anthropicStream(
     } catch {
       // skip malformed lines
     }
-  }
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() ?? '' // keep the last, possibly-incomplete line
-    for (const line of lines) handleLine(line)
-  }
-  if (buffer) handleLine(buffer) // flush any final line with no trailing newline
+  })
 
   const duration_ms = Date.now() - start
 

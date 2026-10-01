@@ -52,8 +52,7 @@ flowchart LR
 | `ttft_ms` | Milliseconds from request start to first token received |
 | `tps` | Tokens per second after first token |
 | `total_duration_ms` | Full end-to-end time |
-| `cost_usd` | Computed from token counts × provider pricing |
-| `guardrail_overhead_ms` | Time spent in per-chunk callbacks |
+| `cost_usd` | Computed from token counts and model pricing |
 
 ---
 
@@ -104,7 +103,6 @@ import { runBenchmark } from '@ykstormsorg/quickdraw'
 const results = await runBenchmark({
   providers: ['openai', 'anthropic'],
   runs: 3,
-  guardrails: false,
 })
 // results: BenchmarkResult[] with per-provider stream metrics
 ```
@@ -160,7 +158,7 @@ estimate.
 
 - No Bedrock, Vertex, Gemini, Azure, or local models. Only OpenAI and Anthropic.
 - No hosted dashboard. Results are a JSON file and a terminal table, with no web UI.
-- Guardrail overhead is a stub: `guardrail_overhead_ms` is measured with a no-op callback, not real Tripwire patterns.
+- No guardrail-overhead measurement. A per-chunk `onChunk` callback is available for streaming consumption, but its dispatch cost is not benchmarked.
 
 ---
 

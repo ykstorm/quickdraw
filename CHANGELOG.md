@@ -37,6 +37,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Nightly GitHub Pages bench job (it was gated on `master` and never ran on
   `main`) and the stale `SPEC.md` / `docs/CLAIM_AUDIT.md`.
+- The guardrail-overhead stub. `StreamMetrics` no longer carries
+  `guardrail_overhead_ms` or `api_calls`; the `guardrails` config flag is
+  accepted but ignored (deprecated). Pass `config.onChunk` for streaming
+  consumption. `runBenchmark(config, { logger?, onProgress? })` replaces the
+  module-level logger singleton (`getLogger`/`resetLogger` removed).
 
 ## [1.0.4] - 2026-07-05
 

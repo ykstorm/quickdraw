@@ -19,7 +19,7 @@ function sampleResult(over: Partial<BenchmarkResult> = {}): BenchmarkResult {
   return {
     provider: 'openai',
     model: 'gpt-4o-mini',
-    metrics: { ttft_ms: 100, tps: 50, total_duration_ms: 1000, token_count: 100, guardrail_overhead_ms: 0, api_calls: 1 },
+    metrics: { ttft_ms: 100, tps: 50, total_duration_ms: 1000, token_count: 100 },
     cost_usd: 0.001,
     success: true,
     runs: 1,
@@ -80,6 +80,19 @@ describe('cli: bench dry-run', () => {
     const text = h.out.join('\n')
     expect(text).toMatch(/DRY_RUN=true/)
     expect(text).toMatch(/Total planned calls: 4/)
+    expect(bench).not.toHaveBeenCalled()
+  })
+
+  it('treats DRY_RUN=1 as truthy', async () => {
+    const h = harness()
+    const bench = vi.fn()
+    const code = await run(['bench', '--providers', 'openai', '--runs', '1'], {
+      ...h.deps,
+      env: { DRY_RUN: '1' },
+      runBenchmark: bench,
+    })
+    expect(code).toBe(0)
+    expect(h.out.join('\n')).toMatch(/DRY_RUN=true/)
     expect(bench).not.toHaveBeenCalled()
   })
 })
@@ -232,5 +245,16 @@ describe('cli: diff', () => {
       readFile: () => '[]',
     })
     expect(code).toBe(1)
+  })
+
+  it('rejects a non-numeric --threshold', async () => {
+    const h = harness()
+    const files: Record<string, string> = { 'a.json': run1, 'b.json': run1 }
+    const code = await run(['diff', 'a.json', 'b.json', '--threshold', 'abc'], {
+      ...h.deps,
+      readFile: (p: string) => files[p],
+    })
+    expect(code).toBe(1)
+    expect(h.err.join('\n')).toMatch(/--threshold must be a number/)
   })
 })

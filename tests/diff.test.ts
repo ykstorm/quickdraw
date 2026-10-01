@@ -6,7 +6,7 @@ function mk(over: Partial<BenchmarkResult>): BenchmarkResult {
   return {
     provider: 'openai',
     model: 'gpt-4o-mini',
-    metrics: { ttft_ms: 100, tps: 50, total_duration_ms: 1000, token_count: 100, guardrail_overhead_ms: 0, api_calls: 1 },
+    metrics: { ttft_ms: 100, tps: 50, total_duration_ms: 1000, token_count: 100 },
     cost_usd: 0.001,
     success: true,
     runs: 3,

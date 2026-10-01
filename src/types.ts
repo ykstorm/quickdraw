@@ -3,7 +3,13 @@ export type ProviderName = 'anthropic' | 'openai'
 export interface BenchmarkConfig {
   runs: number
   providers: ProviderName[]
-  guardrails: boolean
+  /**
+   * @deprecated Accepted but ignored. The guardrail-overhead stub was removed;
+   * pass `onChunk` to observe streamed text. Will be dropped in a future minor.
+   */
+  guardrails?: boolean
+  /** Optional per-chunk callback, passed through to each provider stream. */
+  onChunk?: (text: string) => void
   /** Hard cost ceiling in USD. Defaults to 2.00 when omitted. */
   costCap?: number
   /** Override the prompt used for every run (e.g. from --prompt-file). */
@@ -37,8 +43,6 @@ export interface StreamMetrics {
   tps: number
   total_duration_ms: number
   token_count: number
-  guardrail_overhead_ms: number
-  api_calls: number
 }
 
 /** A single run's outcome (one prompt, one provider). */
