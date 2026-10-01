@@ -1,6 +1,6 @@
 # Contributing to Quickdraw
 
-Thank you for your interest in contributing! Here's everything you need to know to get started.
+How to set up the project and the conventions to follow.
 
 ## Getting started
 
@@ -29,31 +29,31 @@ npm run bench     # live against OpenAI + Anthropic (costs $)
 
 ## Adding a new provider
 
-1. Create `src/providers/<provider>.ts` implementing the `Provider` interface.
-2. Register it in `src/providers/index.ts`.
-3. Add pricing in `src/cost-tracker.ts`.
-4. Add tests.
+1. Create `src/providers/<provider>.ts` exporting a `<provider>Stream(prompt, onChunk?, model)` function that returns a `ProviderStreamResult` (see `src/providers/openai.ts` for the shape).
+2. Wire it into `streamFor` and `resolveModel` in `src/benchmark.ts`, and add the provider to `ProviderName` in `src/types.ts` and to `REQUIRED_KEY` in `src/preflight.ts`.
+3. Add the model(s) to `MODEL_PRICING` in `src/cost-tracker.ts`, with an "as of" date.
+4. Add tests under `tests/`.
 5. Open a PR.
 
-See [docs/architecture.md](docs/architecture.md) for the full provider adapter interface.
+See [docs/architecture.md](docs/architecture.md) for the module layout.
 
 ## Adding a new metric
 
-1. Add the field to `src/types.ts` → `MetricResult`.
-2. Capture it in `src/metrics.ts` → `MetricCollector`.
-3. Log it in `src/logger.ts` → `APICallLogger`.
+1. Add the field to the relevant interface in `src/types.ts` (`StreamMetrics`, or `APICallLogEntry` for a ledger field).
+2. Populate it in `src/metrics.ts` / `src/benchmark.ts`.
+3. Log it in `src/logger.ts` if it belongs in the ledger.
 4. Add a vitest test.
 
 ## Reporting issues
 
 - Search existing issues first.
-- Include output of `DRY_RUN=true npm run bench` so we can reproduce without API costs.
+- Include the output of `DRY_RUN=true npm run bench` so the issue is reproducible without API costs.
 - Specify OS, Node version, and provider SDK version.
 
 ## Code style
 
 - TypeScript strict mode.
-- No `any` (except in `.eslintrc.json` justified overrides).
+- Avoid `any` outside the overrides already justified in `eslint.config.mjs`.
 - Comments for non-obvious logic; docstrings for public APIs.
 - Run `npm run lint` before opening a PR — CI enforces zero warnings.
 

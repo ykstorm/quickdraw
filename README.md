@@ -1,6 +1,8 @@
 # Quickdraw
 
-**Benchmark LLM streaming — TTFT, TPS, $/1K tokens. Across providers, on your prompts, with a hard cost ceiling.**
+Benchmark LLM streaming across OpenAI and Anthropic: time to first token (TTFT),
+tokens per second (TPS), p50/p95/p99, and cost, on your prompts, with a hard cost
+ceiling.
 
 [![CI](https://github.com/ykstorm/quickdraw/actions/workflows/ci.yml/badge.svg)](https://github.com/ykstorm/quickdraw/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/@ykstormsorg/quickdraw)](https://www.npmjs.com/package/@ykstormsorg/quickdraw)
@@ -8,15 +10,18 @@
 
 ---
 
-## The problem
+## What it does
 
-LLM SDKs give you a latency number but not a streaming breakdown. "Total time to first token" vs "time after last token" vs "throughput in tokens/sec" are different numbers that tell you different things. Quickdraw splits the stream into phases and gives you each one.
+LLM SDKs report a single latency number, not a streaming breakdown. Time to the
+first token, time generating the rest, and throughput in tokens per second are
+different numbers that answer different questions. Quickdraw splits a streamed
+response into those phases, reports each one as avg / p50 / p95 / p99 across
+runs, prices the run from provider token counts, and stops before a configured
+cost ceiling.
 
----
-
-## Why this exists
-
-I built Quickdraw to settle a provider decision for [Homesty.ai](https://homesty.ai)'s chat with primary data instead of published averages. The split mattered: the provider with worse total time had better first-token latency — the number a waiting user actually feels — and that changed the choice. Two design rules carried over from that decision: every summary stat re-derives from the raw `api_calls.jsonl` (an unauditable benchmark is an opinion), and the cost ceiling is a hard abort, not a warning — a benchmark run must never become a billing incident. The `guardrail_overhead_ms` metric exists because I needed to price per-chunk stream callbacks ([tripwire](https://github.com/ykstorm/tripwire)'s check cost) and no off-the-shelf benchmark measures callback dispatch at all.
+Two design choices are worth calling out. Every summary number re-derives from
+the raw `api_calls.jsonl` ledger, so a result can be audited. The cost ceiling is
+enforced before each call, not after, so a run cannot overshoot its budget.
 
 ---
 
@@ -144,27 +149,27 @@ of streamed SSE frames (which undercounts throughput when one frame carries
 several tokens). When `usage` is absent, both token counts fall back to a char/4
 estimate.
 
-## What's here now
+## Supported
 
-- **Percentile reporting.** TTFT and TPS are reported as avg / p50 / p95 / p99 across runs.
-- **Regression diffing.** `quickdraw diff <run1.json> <run2.json>` compares two saved runs and flags TTFT/TPS/cost regressions and success/model changes (exit code 2 when a regression is found).
-- **Exact token counts.** Token counts come from each provider's `usage` field when available, falling back to a char/4 estimate.
-- **API-key preflight.** Missing keys produce a clean `Set <ENV_VAR>` message and exit 1 — never a `Bearer undefined` 401 dump.
+- Percentile reporting: TTFT and TPS as avg / p50 / p95 / p99 across runs.
+- Regression diffing: `quickdraw diff <run1.json> <run2.json>` compares two saved runs and flags TTFT/TPS/cost regressions and success/model changes (exit code 2 when a regression is found).
+- Token counts from each provider's `usage` field when available, falling back to a char/4 estimate.
+- API-key preflight: a missing key produces a clean `Set <ENV_VAR>` message and exit 1, not a `Bearer undefined` 401 dump.
 
-## What's NOT here
+## Not supported
 
-- **No Bedrock / Vertex / Gemini support.** Only OpenAI and Anthropic. Azure and local models are not wired.
-- **No hosted dashboard.** Results are a JSON file and a terminal table; there is no web UI.
-- **Guardrail overhead is a stub.** `guardrail_overhead_ms` is measured with a no-op callback — it doesn't run real Tripwire patterns.
+- No Bedrock, Vertex, Gemini, Azure, or local models. Only OpenAI and Anthropic.
+- No hosted dashboard. Results are a JSON file and a terminal table, with no web UI.
+- Guardrail overhead is a stub: `guardrail_overhead_ms` is measured with a no-op callback, not real Tripwire patterns.
 
 ---
 
 ## Contributing
 
-Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to get involved.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and conventions.
 
 ---
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE).
+Apache 2.0, see [LICENSE](LICENSE).
