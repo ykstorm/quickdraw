@@ -47,48 +47,62 @@ function parseProviders(raw: string): ProviderName[] {
   return names as ProviderName[]
 }
 
-/** The `bench` subcommand. Returns the intended exit code. */
-async function benchAction(opts: Record<string, string | boolean>, ctx: Ctx): Promise<number> {
+type BenchOpts = Record<string, string | boolean>
+
+function positiveInt(raw: unknown, flag: string): number {
+  const n = parseInt(String(raw), 10)
+  if (!Number.isFinite(n) || n < 1) throw new Error(`${flag} must be a positive integer (got ${raw})`)
+  return n
+}
+
+/** Reads the prompt file, rejecting anything that is not a file, too big, or empty. */
+function readPrompt(file: string, maxBytes: number, ctx: Ctx): string {
+  const stat = ctx.statFile(file)
+  if (!stat.isFile) throw new Error(`Prompt path is not a file: ${file}`)
+  if (stat.size > maxBytes) throw new Error(`Prompt file is ${stat.size} bytes, over the ${maxBytes}-byte limit: ${file}`)
+  const prompt = ctx.readFile(file).trim()
+  if (!prompt) throw new Error(`Prompt file is empty: ${file}`)
+  return prompt
+}
+
+/** Turns the raw `bench` flags into a config, throwing on the first bad value. */
+function benchConfig(opts: BenchOpts, ctx: Ctx): BenchmarkConfig {
   const providers = parseProviders(String(opts.providers))
-  const runs = parseInt(String(opts.runs), 10)
+  const runs = positiveInt(opts.runs, '--runs')
   const costCap = parseFloat(String(opts.costCap))
-  if (!Number.isFinite(runs) || runs < 1) throw new Error(`--runs must be a positive integer (got ${opts.runs})`)
   if (!Number.isFinite(costCap) || costCap <= 0) throw new Error(`--cost-cap must be a positive number (got ${opts.costCap})`)
-
-  const maxPromptBytes = parseInt(String(opts.maxPromptBytes), 10)
-  if (!Number.isFinite(maxPromptBytes) || maxPromptBytes < 1) {
-    throw new Error(`--max-prompt-bytes must be a positive integer (got ${opts.maxPromptBytes})`)
-  }
-
-  let prompt: string | undefined
-  if (opts.promptFile) {
-    const file = String(opts.promptFile)
-    const stat = ctx.statFile(file)
-    if (!stat.isFile) throw new Error(`Prompt path is not a file: ${file}`)
-    if (stat.size > maxPromptBytes) {
-      throw new Error(`Prompt file is ${stat.size} bytes, over the ${maxPromptBytes}-byte limit: ${file}`)
-    }
-    prompt = ctx.readFile(file).trim()
-    if (!prompt) throw new Error(`Prompt file is empty: ${file}`)
-  }
-
+  const maxPromptBytes = positiveInt(opts.maxPromptBytes, '--max-prompt-bytes')
+  const prompt = opts.promptFile ? readPrompt(String(opts.promptFile), maxPromptBytes, ctx) : undefined
   const allowUnpriced = Boolean(opts.allowUnpriced)
+  const model = opts.model as string | undefined
 
   // Validate pricing for every model BEFORE any network call, unless the caller
   // opted into unpriced runs.
   if (!allowUnpriced) {
-    const unpriced = [...new Set(providers.map((p) => resolveModel(p, opts.model as string | undefined)))].filter((m) => !pricingFor(m))
+    const unpriced = [...new Set(providers.map((p) => resolveModel(p, model)))].filter((m) => !pricingFor(m))
     if (unpriced.length > 0) {
       throw new Error(`No pricing on file for model(s): ${unpriced.join(', ')}. Add them to MODEL_PRICING or pass --allow-unpriced.`)
     }
   }
+  return { providers, runs, costCap, prompt, model, allowUnpriced }
+}
+
+function printDryRun(config: BenchmarkConfig, promptFile: unknown, ctx: Ctx): void {
+  const { providers, runs, costCap, model } = config
+  ctx.out('[quickdraw] DRY_RUN=true — no network calls will be made.')
+  ctx.out(`[quickdraw] Would benchmark: providers=${providers.join(',')} runs=${runs} cost-cap=$${costCap}`)
+  if (model) ctx.out(`[quickdraw] Model override: ${model}`)
+  ctx.out(`[quickdraw] Prompt source: ${promptFile ? promptFile : 'built-in prompt rotation'}`)
+  ctx.out(`[quickdraw] Total planned calls: ${providers.length * runs}`)
+}
+
+/** The `bench` subcommand. Returns the intended exit code. */
+async function benchAction(opts: BenchOpts, ctx: Ctx): Promise<number> {
+  const config = benchConfig(opts, ctx)
+  const { providers, runs, costCap } = config
 
   if (isTruthy(ctx.env.DRY_RUN)) {
-    ctx.out('[quickdraw] DRY_RUN=true — no network calls will be made.')
-    ctx.out(`[quickdraw] Would benchmark: providers=${providers.join(',')} runs=${runs} cost-cap=$${costCap}`)
-    if (opts.model) ctx.out(`[quickdraw] Model override: ${opts.model}`)
-    ctx.out(`[quickdraw] Prompt source: ${opts.promptFile ? opts.promptFile : 'built-in prompt rotation'}`)
-    ctx.out(`[quickdraw] Total planned calls: ${providers.length * runs}`)
+    printDryRun(config, opts.promptFile, ctx)
     return 0
   }
 
@@ -97,15 +111,6 @@ async function benchAction(opts: Record<string, string | boolean>, ctx: Ctx): Pr
   if (missing.length > 0) {
     for (const k of missing) ctx.err(`Set ${k}`)
     return 1
-  }
-
-  const config: BenchmarkConfig = {
-    providers,
-    runs,
-    costCap,
-    prompt,
-    model: opts.model as string | undefined,
-    allowUnpriced,
   }
 
   ctx.out(`Running benchmark: providers=${providers.join(',')} runs=${runs} cost-cap=$${costCap}`)

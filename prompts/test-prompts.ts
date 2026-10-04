@@ -1,4 +1,4 @@
-export const BENCHMARK_PROMPTS = [
+const BENCHMARK_PROMPTS = [
   'Explain quantum entanglement in one paragraph.',
   'What is the difference between a mutex and a semaphore?',
   'Describe the water cycle in three sentences.',
