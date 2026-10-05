@@ -11,6 +11,13 @@ describe('redactSecrets', () => {
     expect(s).toContain('[REDACTED]')
   })
 
+  it('leaves JSON parseable after redacting a Bearer token inside a string', () => {
+    const doc = JSON.stringify({ error: 'got 401 with Authorization: Bearer abc.def-123' })
+    const out = redactSecrets(doc)
+    expect(() => JSON.parse(out)).not.toThrow()
+    expect(out).not.toContain('abc.def-123')
+  })
+
   it('redacts Bearer tokens', () => {
     expect(redactSecrets('Authorization: Bearer supersecrettoken')).not.toMatch(/supersecrettoken/)
   })

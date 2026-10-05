@@ -50,7 +50,6 @@ export async function anthropicStream(
 
   let fullText = ''
   let ttft_ms = 0
-  let tokenCount = 0
   let usagePromptTokens = 0
   let usageCompletionTokens = 0
 
@@ -64,7 +63,6 @@ export async function anthropicStream(
         if (u?.output_tokens != null) usageCompletionTokens = u.output_tokens
       } else if (event.type === 'content_block_delta' && event.delta?.text) {
         if (ttft_ms === 0) ttft_ms = Date.now() - start
-        tokenCount++
         fullText += event.delta.text
         if (onChunk) onChunk(event.delta.text)
       } else if (event.type === 'message_delta' && event.usage?.output_tokens != null) {
@@ -89,7 +87,6 @@ export async function anthropicStream(
 
   return {
     text: fullText,
-    tokens: tokenCount,
     ttft_ms,
     duration_ms,
     prompt_tokens,

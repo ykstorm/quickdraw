@@ -57,6 +57,14 @@ describe('diffRuns', () => {
     expect(d.providers[0].regressions.join(' ')).toMatch(/TTFT up 100%/)
   })
 
+  it('treats any cost on a zero-cost baseline as a regression', () => {
+    const before = [mk({ cost_usd: 0 })]
+    const after = [mk({ cost_usd: 5 })]
+    const d = diffRuns(before, after, 10)
+    expect(d.regressed).toBe(true)
+    expect(d.providers[0].regressions.join(' ')).toMatch(/cost up/)
+  })
+
   it('flags a TPS drop beyond threshold', () => {
     const before = [mk({ tps: { avg: 100, p50: 100, p95: 100, p99: 100 } })]
     const after = [mk({ tps: { avg: 50, p50: 50, p95: 50, p99: 50 } })]

@@ -49,7 +49,6 @@ export async function openaiStream(
 
   let fullText = ''
   let ttft_ms = 0
-  let tokenCount = 0
   let usagePromptTokens = 0
   let usageCompletionTokens = 0
 
@@ -59,7 +58,6 @@ export async function openaiStream(
       if (event.choices?.[0]?.delta?.content) {
         if (ttft_ms === 0) ttft_ms = Date.now() - start
         const text = event.choices[0].delta.content
-        tokenCount++
         fullText += text
         if (onChunk) onChunk(text)
       }
@@ -83,7 +81,6 @@ export async function openaiStream(
 
   return {
     text: fullText,
-    tokens: tokenCount,
     ttft_ms,
     duration_ms,
     prompt_tokens,

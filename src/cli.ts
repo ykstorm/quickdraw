@@ -50,8 +50,8 @@ function parseProviders(raw: string): ProviderName[] {
 type BenchOpts = Record<string, string | boolean>
 
 function positiveInt(raw: unknown, flag: string): number {
-  const n = parseInt(String(raw), 10)
-  if (!Number.isFinite(n) || n < 1) throw new Error(`${flag} must be a positive integer (got ${raw})`)
+  const n = Number(String(raw).trim())
+  if (!Number.isInteger(n) || n < 1) throw new Error(`${flag} must be a positive integer (got ${raw})`)
   return n
 }
 

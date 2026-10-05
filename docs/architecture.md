@@ -23,6 +23,7 @@ src/
     anthropic.ts        anthropicStream() over the Messages SSE endpoint
     openai.ts           openaiStream() over the Chat Completions SSE endpoint
     http-error.ts       secret redaction, error sanitizing, request timeout
+    sse.ts              line-aligned SSE reader shared by both providers
 
 prompts/test-prompts.ts built-in prompt rotation
 bench/standard-prompt.md canonical prompt for live runs
@@ -35,14 +36,19 @@ bin/cli.ts              CLI entry point (thin wrapper over src/cli.ts)
 estimate (prompt estimate + `MAX_OUTPUT_TOKENS`) against the budget, throwing
 `CostCeilingError` if it would breach the ceiling (so the call is never made).
 `settle()` then swaps that reservation for the call's real cost. Because the
-reservation is added synchronously before the network call, an in-flight request
-can never overshoot the ceiling.
+reservation is added synchronously before the network call, a call that could
+cross the ceiling is never started. The reservation is an estimate (half a token
+per prompt character plus the maximum output), so settled spend can exceed the
+ceiling by the amount one call cost beyond its estimate; it cannot run away.
 
 ## Why JSON Lines
 
-The ledger (`api_calls.jsonl`) is append-only and one row per call, so a crash
-leaves a readable partial file, `tail -f … | jq` works without setup, and every
-summary stat (TTFT/TPS percentiles, cost) re-derives from the raw rows.
+The ledger (`api_calls.jsonl`) is one row per call, written as each call
+completes and started fresh for every run, so a crash leaves a readable partial
+file, `tail -f … | jq` works without setup, and every summary stat (TTFT/TPS
+percentiles, cost) can be recomputed from the raw rows. The CLI computes the
+summary from the same per-call records in memory; nothing in `src/` reads the
+file back.
 
 ## Providers
 

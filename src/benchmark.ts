@@ -1,6 +1,7 @@
 import { BenchmarkConfig, BenchmarkResult, ProviderName, ProviderStreamResult, RunResult, StreamMetrics } from './types'
 import { CostTracker, CostCeilingError, MAX_OUTPUT_TOKENS } from './cost-tracker'
 import { APICallLogger } from './logger'
+import { isTruthy } from './preflight'
 import { computeMetrics } from './metrics'
 import { anthropicStream, DEFAULT_ANTHROPIC_MODEL } from './providers/anthropic'
 import { openaiStream, DEFAULT_OPENAI_MODEL } from './providers/openai'
@@ -31,8 +32,11 @@ function streamFor(
 }
 
 /** Rough prompt-token estimate used only to size the pre-call cost reservation. */
+// Deliberately high: English runs near four characters per token, code and
+// other scripts fewer, so half a token per character leaves the ceiling check
+// erring on the side of not calling. The real cost replaces it after the call.
 function estimatePromptTokens(prompt: string): number {
-  return Math.ceil(prompt.length / 4)
+  return Math.ceil(prompt.length / 2)
 }
 
 const emptyMetrics = (): StreamMetrics => ({ ttft_ms: 0, tps: 0, total_duration_ms: 0, token_count: 0 })
@@ -69,6 +73,10 @@ async function runOnce(
     // log that cost, never a fabricated $0.
     const cost = costTracker.priceOf(model, streamResult.prompt_tokens, streamResult.completion_tokens)
     costTracker.settle(reserved, cost)
+    if (streamResult.completion_tokens === 0) {
+      // A 200 with no content would otherwise count as a run with a 0 ms TTFT.
+      return { provider, model, metrics: emptyMetrics(), cost_usd: cost, success: false, error: 'no content received' }
+    }
 
     logger.log({
       timestamp: new Date().toISOString(),
@@ -148,6 +156,9 @@ function aggregate(provider: string, model: string, runs: RunResult[]): Benchmar
 }
 
 export async function runBenchmark(config: BenchmarkConfig, deps: BenchmarkDeps = {}): Promise<BenchmarkResult[]> {
+  if (isTruthy(process.env.DRY_RUN)) {
+    throw new Error('DRY_RUN is set: runBenchmark makes network calls. Unset it, or use the CLI, which prints the plan instead.')
+  }
   const costTracker = new CostTracker(config.costCap ?? 2.0, config.allowUnpriced ?? false)
   const logger = deps.logger ?? new APICallLogger({ truncate: true })
   const onProgress = deps.onProgress ?? ((m: string) => console.log(m))
@@ -188,6 +199,9 @@ export async function runBenchmark(config: BenchmarkConfig, deps: BenchmarkDeps 
       }
     }
 
+    if (perRun.length === 0 && ceilingHit) {
+      perRun.push({ provider, model, metrics: emptyMetrics(), cost_usd: 0, success: false, error: 'skipped: cost ceiling reached' })
+    }
     results.push(aggregate(provider, model, perRun))
   }
 

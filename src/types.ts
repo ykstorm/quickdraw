@@ -84,7 +84,6 @@ export interface BenchmarkResult {
 
 export interface ProviderStreamResult {
   text: string
-  tokens: number
   ttft_ms: number
   duration_ms: number
   prompt_tokens: number

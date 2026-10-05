@@ -12,7 +12,9 @@ const SECRET_PATTERNS: RegExp[] = [
   // OpenAI / Anthropic style keys: sk-..., sk-ant-..., sk-proj-..., sk-live-...
   /\b(sk|sk-ant|sk-proj)-[A-Za-z0-9_-]{4,}/g,
   // Authorization: Bearer <token>
-  /Bearer\s+\S+/g,
+  // token characters only, so a closing quote after the token survives and
+  // a redacted JSON document still parses
+  /Bearer\s+[A-Za-z0-9._~+/=-]+/g,
 ]
 
 const REDACTION = '[REDACTED]'
