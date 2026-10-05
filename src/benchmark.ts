@@ -41,8 +41,6 @@ function estimatePromptTokens(prompt: string): number {
 
 const emptyMetrics = (): StreamMetrics => ({ ttft_ms: 0, tps: 0, total_duration_ms: 0, token_count: 0 })
 
-type ProviderRun = { perRun: RunResult[]; ceilingHit: boolean }
-
 interface RunContext {
   logger: APICallLogger
   costTracker: CostTracker
@@ -161,7 +159,7 @@ export async function runBenchmark(config: BenchmarkConfig, deps: BenchmarkDeps 
   if (isTruthy(process.env.DRY_RUN)) {
     throw new Error('DRY_RUN is set: runBenchmark makes network calls. Unset it, or use the CLI, which prints the plan instead.')
   }
-  const ctx: RunContext = {
+  const ctx: BenchContext = {
     config,
     costTracker: new CostTracker(config.costCap ?? 2.0, config.allowUnpriced ?? false),
     logger: deps.logger ?? new APICallLogger({ truncate: true }),
@@ -183,7 +181,7 @@ export async function runBenchmark(config: BenchmarkConfig, deps: BenchmarkDeps 
 
 type ProviderRun = { perRun: RunResult[]; ceilingHit: boolean }
 
-interface RunContext {
+interface BenchContext {
   config: BenchmarkConfig
   costTracker: CostTracker
   logger: APICallLogger
@@ -195,7 +193,7 @@ const skipped = (provider: string, model: string): RunResult => ({
 })
 
 /** All runs for one provider, stopping at the cost ceiling. */
-async function benchProvider(provider: ProviderName, model: string, ctx: RunContext): Promise<ProviderRun> {
+async function benchProvider(provider: ProviderName, model: string, ctx: BenchContext): Promise<ProviderRun> {
   const { config, costTracker, logger, onProgress } = ctx
   const perRun: RunResult[] = []
 

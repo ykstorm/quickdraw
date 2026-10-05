@@ -78,7 +78,7 @@ git clone https://github.com/ykstorm/quickdraw.git
 cd quickdraw
 npm install
 npm test                    # vitest suite
-DRY_RUN=true npm run bench  # dry run against mock infra
+DRY_RUN=true npm run bench  # prints the plan; no network calls
 # Then with real keys:
 export OPENAI_API_KEY=sk-...
 export ANTHROPIC_API_KEY=sk-ant-...
@@ -105,7 +105,7 @@ const results = await runBenchmark({
 
 | Layer | Choice |
 |---|---|
-| Runtime | Node.js 18+ |
+| Runtime | Node.js 20+ |
 | Types | TypeScript |
 | Build | tsup |
 | Tests | Vitest |
