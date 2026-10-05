@@ -96,7 +96,8 @@ export function compareProvider(
   const tps = delta(r1.tps?.avg ?? r1.metrics.tps, r2.tps?.avg ?? r2.metrics.tps)
   const cost = delta(r1.cost_usd, r2.cost_usd)
 
-  if (Number.isFinite(ttft.pct) && ttft.pct > threshold) {
+  // pct is Infinity when the baseline was 0, which is a regression too.
+  if (ttft.pct > threshold) {
     regressions.push(`TTFT up ${ttft.pct}%`)
     regressed = true
   }
@@ -104,7 +105,7 @@ export function compareProvider(
     regressions.push(`TPS down ${Math.abs(tps.pct)}%`)
     regressed = true
   }
-  if (Number.isFinite(cost.pct) && cost.pct > threshold) {
+  if (cost.pct > threshold) {
     regressions.push(`cost up ${cost.pct}%`)
     regressed = true
   }

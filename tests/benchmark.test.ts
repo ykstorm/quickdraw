@@ -24,7 +24,6 @@ import { runBenchmark } from '../src/benchmark'
 function streamResult(over: Partial<ProviderStreamResult> = {}): ProviderStreamResult {
   return {
     text: 'hello world',
-    tokens: 50,
     ttft_ms: 100,
     duration_ms: 1100,
     prompt_tokens: 10,
@@ -69,6 +68,32 @@ describe('runBenchmark', () => {
     openaiStream.mockResolvedValue(streamResult())
     await runBenchmark({ providers: ['openai'], runs: 1, guardrails: false, prompt: 'CUSTOM PROMPT' })
     expect(openaiStream).toHaveBeenCalledWith('CUSTOM PROMPT', undefined, 'gpt-4o-mini')
+  })
+
+  it('reports a provider after the ceiling hit as skipped, not failed', async () => {
+    anthropicStream.mockResolvedValue(streamResult({ prompt_tokens: 10, completion_tokens: 50 }))
+    openaiStream.mockResolvedValue(streamResult())
+    const results = await runBenchmark({ providers: ['anthropic', 'openai'], runs: 3, guardrails: false, costCap: 0.0027, prompt: 'hi' })
+    expect(openaiStream).toHaveBeenCalledTimes(0)
+    expect(results[1].success).toBe(false)
+    expect(results[1].error).toBe('skipped: cost ceiling reached')
+  })
+
+  it('counts a response with no content as a failed run, not a 0 ms TTFT', async () => {
+    openaiStream.mockResolvedValue(streamResult({ text: '', completion_tokens: 0, ttft_ms: 0 }))
+    const results = await runBenchmark({ providers: ['openai'], runs: 1, guardrails: false })
+    expect(results[0].success).toBe(false)
+    expect(results[0].perRun?.[0].error).toBe('no content received')
+  })
+
+  it('refuses to run under DRY_RUN instead of calling a provider without a key', async () => {
+    process.env.DRY_RUN = 'true'
+    try {
+      await expect(runBenchmark({ providers: ['openai'], runs: 1, guardrails: false })).rejects.toThrow(/DRY_RUN/)
+      expect(openaiStream).toHaveBeenCalledTimes(0)
+    } finally {
+      delete process.env.DRY_RUN
+    }
   })
 
   it('refuses the call entirely when even one reservation exceeds the cap', async () => {

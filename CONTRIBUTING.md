@@ -6,7 +6,7 @@ How to set up the project and the conventions to follow.
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 20+
 - npm 9+
 
 ### Setup
@@ -30,7 +30,7 @@ npm run bench     # live against OpenAI + Anthropic (costs $)
 ## Adding a new provider
 
 1. Create `src/providers/<provider>.ts` exporting a `<provider>Stream(prompt, onChunk?, model)` function that returns a `ProviderStreamResult` (see `src/providers/openai.ts` for the shape).
-2. Wire it into `streamFor` and `resolveModel` in `src/benchmark.ts`, and add the provider to `ProviderName` in `src/types.ts` and to `REQUIRED_KEY` in `src/preflight.ts`.
+2. Wire it into `streamFor` and `resolveModel` in `src/benchmark.ts`, and add the provider to `ProviderName` in `src/types.ts`, to `REQUIRED_KEY` in `src/preflight.ts` and to `VALID_PROVIDERS` in `src/cli.ts`.
 3. Add the model(s) to `MODEL_PRICING` in `src/cost-tracker.ts`, with an "as of" date.
 4. Add tests under `tests/`.
 5. Open a PR.
@@ -48,12 +48,12 @@ See [docs/architecture.md](docs/architecture.md) for the module layout.
 
 - Search existing issues first.
 - Include the output of `DRY_RUN=true npm run bench` so the issue is reproducible without API costs.
-- Specify OS, Node version, and provider SDK version.
+- Specify OS and Node version. The providers are called with plain `fetch`; there is no provider SDK.
 
 ## Code style
 
 - TypeScript strict mode.
-- Avoid `any` outside the overrides already justified in `eslint.config.mjs`.
+- Avoid `any`. The lint rule for it is off, so this is a review expectation, not a gate.
 - Comments for non-obvious logic; docstrings for public APIs.
 - Run `npm run lint` before opening a PR — CI enforces zero warnings.
 
@@ -74,7 +74,7 @@ test: add vitest coverage for CostTracker
 - [ ] `npm run lint` reports zero warnings.
 - [ ] New code has docstrings / comments where needed.
 - [ ] `docs/architecture.md` updated if architecture changed.
-- [ ] Entry added in `CHANGELOG.md` under `Unreleased` if user-facing.
+- [ ] Entry added at the top of `CHANGELOG.md` if user-facing (the file has no Unreleased section; add one or a new version heading).
 
 ## License
 

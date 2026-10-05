@@ -23,7 +23,6 @@ body:
         ## Environment
         - Node.js version:
         - OS:
-        - Provider SDK version:
   - type: input
     id: dry-run-output
     attributes:

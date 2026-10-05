@@ -1,6 +1,7 @@
 import { BenchmarkConfig, BenchmarkResult, ProviderName, ProviderStreamResult, RunResult, StreamMetrics } from './types'
 import { CostTracker, CostCeilingError, MAX_OUTPUT_TOKENS } from './cost-tracker'
 import { APICallLogger } from './logger'
+import { isTruthy } from './preflight'
 import { computeMetrics } from './metrics'
 import { anthropicStream, DEFAULT_ANTHROPIC_MODEL } from './providers/anthropic'
 import { openaiStream, DEFAULT_OPENAI_MODEL } from './providers/openai'
@@ -31,8 +32,11 @@ function streamFor(
 }
 
 /** Rough prompt-token estimate used only to size the pre-call cost reservation. */
+// Deliberately high: English runs near four characters per token, code and
+// other scripts fewer, so half a token per character leaves the ceiling check
+// erring on the side of not calling. The real cost replaces it after the call.
 function estimatePromptTokens(prompt: string): number {
-  return Math.ceil(prompt.length / 4)
+  return Math.ceil(prompt.length / 2)
 }
 
 const emptyMetrics = (): StreamMetrics => ({ ttft_ms: 0, tps: 0, total_duration_ms: 0, token_count: 0 })
@@ -69,6 +73,10 @@ async function runOnce(
     // log that cost, never a fabricated $0.
     const cost = costTracker.priceOf(model, streamResult.prompt_tokens, streamResult.completion_tokens)
     costTracker.settle(reserved, cost)
+    if (streamResult.completion_tokens === 0) {
+      // A 200 with no content would otherwise count as a run with a 0 ms TTFT.
+      return { provider, model, metrics: emptyMetrics(), cost_usd: cost, success: false, error: 'no content received' }
+    }
 
     logger.log({
       timestamp: new Date().toISOString(),
@@ -148,48 +156,73 @@ function aggregate(provider: string, model: string, runs: RunResult[]): Benchmar
 }
 
 export async function runBenchmark(config: BenchmarkConfig, deps: BenchmarkDeps = {}): Promise<BenchmarkResult[]> {
-  const costTracker = new CostTracker(config.costCap ?? 2.0, config.allowUnpriced ?? false)
-  const logger = deps.logger ?? new APICallLogger({ truncate: true })
-  const onProgress = deps.onProgress ?? ((m: string) => console.log(m))
+  if (isTruthy(process.env.DRY_RUN)) {
+    throw new Error('DRY_RUN is set: runBenchmark makes network calls. Unset it, or use the CLI, which prints the plan instead.')
+  }
+  const ctx: BenchContext = {
+    config,
+    costTracker: new CostTracker(config.costCap ?? 2.0, config.allowUnpriced ?? false),
+    logger: deps.logger ?? new APICallLogger({ truncate: true }),
+    onProgress: deps.onProgress ?? ((m: string) => console.log(m)),
+  }
   const results: BenchmarkResult[] = []
   let ceilingHit = false
 
   for (const provider of config.providers) {
     const model = resolveModel(provider, config.model)
-    const perRun: RunResult[] = []
-
-    for (let i = 0; i < config.runs && !ceilingHit; i++) {
-      const prompt = config.prompt ?? getPrompt(i)
-      const label = `${provider} run ${i + 1}/${config.runs}`
-
-      let result: RunResult
-      try {
-        result = await runOnce(provider, model, prompt, { logger, costTracker, onChunk: config.onChunk })
-      } catch (err) {
-        if (err instanceof CostCeilingError) {
-          onProgress(`  skipped: cost ceiling reached (${label})`)
-          perRun.push({ provider, model, metrics: emptyMetrics(), cost_usd: 0, success: false, error: 'skipped: cost ceiling reached' })
-          ceilingHit = true
-          break
-        }
-        throw err
-      }
-
-      perRun.push(result)
-      if (result.success) {
-        onProgress(`  ok ${label} (TTFT ${result.metrics.ttft_ms}ms, TPS ${result.metrics.tps}, $${result.cost_usd})`)
-        // Stop once settled spend has reached the ceiling.
-        if (costTracker.spent >= costTracker.ceilingUsd) {
-          onProgress('Cost ceiling reached. Halting benchmark.')
-          ceilingHit = true
-        }
-      } else {
-        onProgress(`  fail ${label}: ${result.error}`)
-      }
-    }
-
-    results.push(aggregate(provider, model, perRun))
+    // Once the ceiling is hit, the remaining providers are skipped, not failed.
+    const run: ProviderRun = ceilingHit ? { perRun: [skipped(provider, model)], ceilingHit } : await benchProvider(provider, model, ctx)
+    ceilingHit = run.ceilingHit
+    results.push(aggregate(provider, model, run.perRun))
   }
 
   return results
+}
+
+type ProviderRun = { perRun: RunResult[]; ceilingHit: boolean }
+
+interface BenchContext {
+  config: BenchmarkConfig
+  costTracker: CostTracker
+  logger: APICallLogger
+  onProgress: (m: string) => void
+}
+
+const skipped = (provider: string, model: string): RunResult => ({
+  provider, model, metrics: emptyMetrics(), cost_usd: 0, success: false, error: 'skipped: cost ceiling reached',
+})
+
+/** All runs for one provider, stopping at the cost ceiling. */
+async function benchProvider(provider: ProviderName, model: string, ctx: BenchContext): Promise<ProviderRun> {
+  const { config, costTracker, logger, onProgress } = ctx
+  const perRun: RunResult[] = []
+
+  for (let i = 0; i < config.runs; i++) {
+    const prompt = config.prompt ?? getPrompt(i)
+    const label = `${provider} run ${i + 1}/${config.runs}`
+
+    let result: RunResult
+    try {
+      result = await runOnce(provider, model, prompt, { logger, costTracker, onChunk: config.onChunk })
+    } catch (err) {
+      if (!(err instanceof CostCeilingError)) throw err
+      onProgress(`  skipped: cost ceiling reached (${label})`)
+      perRun.push(skipped(provider, model))
+      return { perRun, ceilingHit: true }
+    }
+
+    perRun.push(result)
+    onProgress(describeRun(label, result))
+    // Stop once settled spend has reached the ceiling.
+    if (result.success && costTracker.spent >= costTracker.ceilingUsd) {
+      onProgress('Cost ceiling reached. Halting benchmark.')
+      return { perRun, ceilingHit: true }
+    }
+  }
+  return { perRun, ceilingHit: false }
+}
+
+function describeRun(label: string, result: RunResult): string {
+  if (!result.success) return `  fail ${label}: ${result.error}`
+  return `  ok ${label} (TTFT ${result.metrics.ttft_ms}ms, TPS ${result.metrics.tps}, $${result.cost_usd})`
 }

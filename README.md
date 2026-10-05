@@ -19,9 +19,13 @@ response into those phases, reports each one as avg / p50 / p95 / p99 across
 runs, prices the run from provider token counts, and stops before a configured
 cost ceiling.
 
-Two design choices are worth calling out. Every summary number re-derives from
-the raw `api_calls.jsonl` ledger, so a result can be audited. The cost ceiling is
-enforced before each call, not after, so a run cannot overshoot its budget.
+Two design choices are worth calling out. Every call is written to the
+`api_calls.jsonl` ledger with its timings, token counts and cost, so a summary can
+be checked against the rows it came from. The cost ceiling is checked before each
+call against a deliberately high estimate (half a token per prompt character plus
+the maximum output), so a call that could cross the ceiling is never started; the
+real cost replaces the estimate afterwards, so settled spend can still end up
+slightly above the ceiling when a call cost more than its estimate.
 
 ---
 
@@ -30,7 +34,7 @@ enforced before each call, not after, so a run cannot overshoot its budget.
 1. The CLI validates the flags, reads the prompt file if one is given, and refuses to start if any model has no pricing on file (unless `--allow-unpriced`).
 2. `runBenchmark` loops over the providers and runs. Before each call it reserves a pessimistic cost estimate against the ceiling; a run that would cross it is skipped and marked as such.
 3. Each provider streams a response; the first token's arrival time gives TTFT, the rest of the stream gives tokens per second and total duration.
-4. Every call is appended to `api_calls.jsonl` as it happens, and the summary numbers are computed from that ledger.
+4. Every call is written to `api_calls.jsonl` as it happens (the file is started fresh each run), and the summary numbers are computed from the same per-call records.
 5. Results print as a table and, with `--json`, are written with secrets redacted.
 
 **Metrics captured per run:**
@@ -74,7 +78,7 @@ git clone https://github.com/ykstorm/quickdraw.git
 cd quickdraw
 npm install
 npm test                    # vitest suite
-DRY_RUN=true npm run bench  # dry run against mock infra
+DRY_RUN=true npm run bench  # prints the plan; no network calls
 # Then with real keys:
 export OPENAI_API_KEY=sk-...
 export ANTHROPIC_API_KEY=sk-ant-...
@@ -101,7 +105,7 @@ const results = await runBenchmark({
 
 | Layer | Choice |
 |---|---|
-| Runtime | Node.js 18+ |
+| Runtime | Node.js 20+ |
 | Types | TypeScript |
 | Build | tsup |
 | Tests | Vitest |
