@@ -165,6 +165,10 @@ export async function runBenchmark(config: BenchmarkConfig, deps: BenchmarkDeps 
   const results: BenchmarkResult[] = []
   let ceilingHit = false
 
+  const skipped = (provider: string, model: string): RunResult => ({
+    provider, model, metrics: emptyMetrics(), cost_usd: 0, success: false, error: 'skipped: cost ceiling reached',
+  })
+
   for (const provider of config.providers) {
     const model = resolveModel(provider, config.model)
     const perRun: RunResult[] = []
@@ -177,33 +181,30 @@ export async function runBenchmark(config: BenchmarkConfig, deps: BenchmarkDeps 
       try {
         result = await runOnce(provider, model, prompt, { logger, costTracker, onChunk: config.onChunk })
       } catch (err) {
-        if (err instanceof CostCeilingError) {
-          onProgress(`  skipped: cost ceiling reached (${label})`)
-          perRun.push({ provider, model, metrics: emptyMetrics(), cost_usd: 0, success: false, error: 'skipped: cost ceiling reached' })
-          ceilingHit = true
-          break
-        }
-        throw err
+        if (!(err instanceof CostCeilingError)) throw err
+        onProgress(`  skipped: cost ceiling reached (${label})`)
+        perRun.push(skipped(provider, model))
+        ceilingHit = true
+        break
       }
 
       perRun.push(result)
-      if (result.success) {
-        onProgress(`  ok ${label} (TTFT ${result.metrics.ttft_ms}ms, TPS ${result.metrics.tps}, $${result.cost_usd})`)
-        // Stop once settled spend has reached the ceiling.
-        if (costTracker.spent >= costTracker.ceilingUsd) {
-          onProgress('Cost ceiling reached. Halting benchmark.')
-          ceilingHit = true
-        }
-      } else {
-        onProgress(`  fail ${label}: ${result.error}`)
+      onProgress(describeRun(label, result))
+      // Stop once settled spend has reached the ceiling.
+      if (result.success && costTracker.spent >= costTracker.ceilingUsd) {
+        onProgress('Cost ceiling reached. Halting benchmark.')
+        ceilingHit = true
       }
     }
 
-    if (perRun.length === 0 && ceilingHit) {
-      perRun.push({ provider, model, metrics: emptyMetrics(), cost_usd: 0, success: false, error: 'skipped: cost ceiling reached' })
-    }
+    if (perRun.length === 0 && ceilingHit) perRun.push(skipped(provider, model))
     results.push(aggregate(provider, model, perRun))
   }
 
   return results
+}
+
+function describeRun(label: string, result: RunResult): string {
+  if (!result.success) return `  fail ${label}: ${result.error}`
+  return `  ok ${label} (TTFT ${result.metrics.ttft_ms}ms, TPS ${result.metrics.tps}, $${result.cost_usd})`
 }
