@@ -27,23 +27,11 @@ enforced before each call, not after, so a run cannot overshoot its budget.
 
 ## How it works
 
-```mermaid
-flowchart LR
-    P[prompts<br/>test-prompts.ts]
-    B[BenchmarkRunner<br/>runBenchmark]
-    O[openai provider<br/>gpt-4o-mini]
-    A[anthropic provider<br/>claude-haiku-4-5]
-    M[computeMetrics<br/>ttft / tps / cost]
-    R[results.jsonl<br/>api_calls.jsonl]
-    P --> B
-    B --> O
-    B --> A
-    O --> M
-    A --> M
-    M --> R
-```
-
-`runBenchmark()` iterates over `providers[]`, streams each prompt, measures TTFT and TPS, writes `api_calls.jsonl` with raw data, and computes summary stats.
+1. The CLI validates the flags, reads the prompt file if one is given, and refuses to start if any model has no pricing on file (unless `--allow-unpriced`).
+2. `runBenchmark` loops over the providers and runs. Before each call it reserves a pessimistic cost estimate against the ceiling; a run that would cross it is skipped and marked as such.
+3. Each provider streams a response; the first token's arrival time gives TTFT, the rest of the stream gives tokens per second and total duration.
+4. Every call is appended to `api_calls.jsonl` as it happens, and the summary numbers are computed from that ledger.
+5. Results print as a table and, with `--json`, are written with secrets redacted.
 
 **Metrics captured per run:**
 
