@@ -37,7 +37,7 @@ slightly above the ceiling when a call cost more than its estimate.
 4. Every call is written to `api_calls.jsonl` as it happens (the file is started fresh each run), and the summary numbers are computed from the same per-call records.
 5. Results print as a table and, with `--json`, are written with secrets redacted.
 
-**Metrics captured per run:**
+Metrics captured per run:
 
 | Metric | Description |
 |---|---|
@@ -67,7 +67,7 @@ DRY_RUN=true quickdraw bench --providers openai --runs 1
 quickdraw diff baseline.json candidate.json
 ```
 
-The benchmark table reports **avg / p50 / p95 / p99** for both TTFT and TPS, plus
+The benchmark table reports avg / p50 / p95 / p99 for both TTFT and TPS, plus
 per-provider cost. If a required API key is missing, the CLI exits with a clean
 `Set OPENAI_API_KEY` / `Set ANTHROPIC_API_KEY` message and makes no network call.
 
