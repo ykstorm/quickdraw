@@ -14,14 +14,20 @@ export interface ProviderDiff {
   ttft?: MetricDelta
   tps?: MetricDelta
   cost?: MetricDelta
-  /** A flag regression: e.g. went from success -> failure, or only-in-one-run. */
+  /** Regressions: a metric past the threshold, or success -> failure. Each sets `regressed`. */
   regressions: string[]
+  /**
+   * Differences that are not regressions, such as a model change. A run on a
+   * different model is a deliberate change, so it is listed but does not set
+   * `regressed`; the metric checks still apply to the new numbers.
+   */
+  changes: string[]
   onlyIn?: 'run1' | 'run2'
 }
 
 export interface DiffResult {
   providers: ProviderDiff[]
-  /** True if any TTFT/cost worsened materially or a success regressed. */
+  /** True if TTFT, TPS or cost moved past the threshold, or a success became a failure. */
   regressed: boolean
 }
 
@@ -108,10 +114,11 @@ export function compareProvider(
   threshold: number
 ): { diff: ProviderDiff; regressed: boolean } {
   const regressions: string[] = []
+  const changes: string[] = []
   let regressed = false
 
   if (r1.model !== r2.model) {
-    regressions.push(`model changed: ${r1.model} -> ${r2.model}`)
+    changes.push(`model ${r1.model} -> ${r2.model}`)
   }
   if (r1.success && !r2.success) {
     regressions.push('success -> failure')
@@ -136,7 +143,7 @@ export function compareProvider(
     regressed = true
   }
 
-  return { diff: { provider: r2.provider, model: r2.model, ttft, tps, cost, regressions }, regressed }
+  return { diff: { provider: r2.provider, model: r2.model, ttft, tps, cost, regressions, changes }, regressed }
 }
 
 /**
@@ -166,11 +173,11 @@ export function diffRuns(
     const r2 = b.get(name)
 
     if (r1 && !r2) {
-      providers.push({ provider: name, model: r1.model, regressions: [], onlyIn: 'run1' })
+      providers.push({ provider: name, model: r1.model, regressions: [], changes: [], onlyIn: 'run1' })
       continue
     }
     if (!r1 && r2) {
-      providers.push({ provider: name, model: r2.model, regressions: [], onlyIn: 'run2' })
+      providers.push({ provider: name, model: r2.model, regressions: [], changes: [], onlyIn: 'run2' })
       continue
     }
     if (!r1 || !r2) continue
@@ -199,6 +206,7 @@ export function formatDiff(d: DiffResult): string {
     if (p.ttft) lines.push(`  TTFT: ${p.ttft.before} -> ${p.ttft.after} ms  (${sign(p.ttft.delta)} ms, ${sign(p.ttft.pct)}%)`)
     if (p.tps) lines.push(`  TPS:  ${p.tps.before} -> ${p.tps.after}  (${sign(p.tps.delta)}, ${sign(p.tps.pct)}%)`)
     if (p.cost) lines.push(`  cost: $${p.cost.before} -> $${p.cost.after}  (${sign(p.cost.delta)}, ${sign(p.cost.pct)}%)`)
+    if (p.changes.length > 0) lines.push(`  Changed: ${p.changes.join('; ')}`)
     if (p.regressions.length > 0) {
       lines.push(`  REGRESSIONS: ${p.regressions.join('; ')}`)
     } else {

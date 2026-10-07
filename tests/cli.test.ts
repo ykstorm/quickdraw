@@ -238,6 +238,19 @@ describe('cli: diff', () => {
     expect(h.out.join('\n')).toMatch(/regressions detected/)
   })
 
+  it('exits 0 on a model change alone and does not print it as a regression', async () => {
+    const h = harness()
+    const files: Record<string, string> = { 'a.json': run1, 'b.json': JSON.stringify([sampleResult({ model: 'gpt-4o' })]) }
+    const code = await run(['diff', 'a.json', 'b.json'], {
+      ...h.deps,
+      readFile: (p: string) => files[p],
+    })
+    expect(code).toBe(0)
+    const text = h.out.join('\n')
+    expect(text).toMatch(/Changed: model gpt-4o-mini -> gpt-4o/)
+    expect(text).not.toMatch(/REGRESSIONS/)
+  })
+
   it('errors (exit 1) when an argument is missing', async () => {
     const h = harness()
     const code = await run(['diff', 'only-one.json'], {
