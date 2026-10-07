@@ -5,6 +5,10 @@ npm published each version; 1.0.0 was tagged but never published. Every
 published version carries npm provenance. Items that can break an existing
 install, import or script are marked Breaking.
 
+## 2.0.1 - 2026-10-08
+
+- Bearer tokens are redacted whatever the letter case of the scheme; before, only the exact spelling Bearer was caught (#44).
+
 ## 2.0.0 - unreleased
 
 Everything below is relative to 1.0.4 (tag `v1.0.4`, commit `63ef1d2`). That
