@@ -70,7 +70,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with: { node-version: '20', registry-url: 'https://registry.npmjs.org' }
+        with: { node-version: '22', registry-url: 'https://registry.npmjs.org' }
       - run: npm ci
       # npm publishes the version in package.json whatever the tag says, so a
       # tag that names another version would publish the wrong release.
@@ -82,5 +82,9 @@ jobs:
             exit 1
           fi
       - run: npm run build
+      # Trusted publishing needs npm 11.5.1 or newer; the npm bundled with Node 22 is older.
+      # Pinned to the 11.x line so a new major npm cannot change the release job unannounced.
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@^11.5.1
+      # npm authenticates with the OIDC token, so no NODE_AUTH_TOKEN is set.
       - run: npm publish --provenance --access public
-        env: { NODE_AUTH_TOKEN: '${{ secrets.NPM_TOKEN }}' }
