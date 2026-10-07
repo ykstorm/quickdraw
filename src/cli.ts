@@ -9,6 +9,8 @@ import { redactSecrets } from './providers/http-error'
 import { missingKeys, isTruthy } from './preflight'
 import { formatBenchTable } from './report'
 import { diffRuns, formatDiff, parseRunFile } from './diff'
+// Bundled at build time, so the printed version is the one in package.json.
+import { version } from '../package.json'
 
 const VALID_PROVIDERS: ProviderName[] = ['openai', 'anthropic']
 /** Prompt files larger than this are rejected unless --max-prompt-bytes raises it. */
@@ -171,6 +173,7 @@ export async function run(argv: string[], deps: CliDeps = {}): Promise<number> {
   program
     .name('quickdraw')
     .description('Benchmark LLM streaming: TTFT, TPS, p50/p95/p99, and cost, with a hard cost cap.')
+    .version(version)
     .exitOverride() // throw instead of calling process.exit, so we control codes
     .configureOutput({
       writeOut: (s) => ctx.out(s.replace(/\n$/, '')),

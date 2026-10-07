@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { run } from '../src/cli'
 import type { BenchmarkResult } from '../src/types'
+import { version } from '../package.json'
 
 function harness() {
   const out: string[] = []
@@ -37,6 +38,17 @@ describe('cli: --help', () => {
     expect(h.out.join('\n')).toMatch(/quickdraw/)
     expect(h.out.join('\n')).toMatch(/bench/)
     expect(h.out.join('\n')).toMatch(/diff/)
+  })
+})
+
+describe('cli: --version', () => {
+  it('prints the package.json version and exits 0', async () => {
+    for (const flag of ['--version', '-V']) {
+      const h = harness()
+      const code = await run([flag], h.deps)
+      expect(code).toBe(0)
+      expect(h.out).toEqual([version])
+    }
   })
 })
 

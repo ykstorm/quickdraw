@@ -5,6 +5,7 @@
  * Subcommands:
  *   quickdraw bench  --providers openai,anthropic --runs 3 --cost-cap 2 [--model id] [--prompt-file path] [--json out.json]
  *   quickdraw diff   <run1.json> <run2.json> [--threshold pct]
+ *   quickdraw --version
  *
  * Env:
  *   DRY_RUN=true       print the plan, make no network calls
