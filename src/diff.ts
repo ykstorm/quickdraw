@@ -103,6 +103,23 @@ export function parseRunFile(raw: string): BenchmarkResult[] {
   return arr as BenchmarkResult[]
 }
 
+const METRIC_FIELD = { ttft: 'ttft_ms', tps: 'tps' } as const
+
+/** The percentile average when the result has one, else the plain average in `metrics`. */
+function avgOf(r: BenchmarkResult, key: 'ttft' | 'tps'): number {
+  return r[key]?.avg ?? r.metrics[METRIC_FIELD[key]]
+}
+
+/** Metric regressions past `threshold` percent: TTFT and cost going up, TPS going down. */
+function metricRegressions(ttft: MetricDelta, tps: MetricDelta, cost: MetricDelta, threshold: number): string[] {
+  const found: string[] = []
+  // pct is Infinity when the baseline was 0, which is a regression too.
+  if (ttft.pct > threshold) found.push(`TTFT up ${ttft.pct}%`)
+  if (Number.isFinite(tps.pct) && tps.pct < -threshold) found.push(`TPS down ${Math.abs(tps.pct)}%`)
+  if (cost.pct > threshold) found.push(`cost up ${cost.pct}%`)
+  return found
+}
+
 /**
  * Compare one provider across two runs. Returns the per-provider diff and
  * whether it counts as a regression. `threshold` is the percent a metric must
@@ -113,37 +130,18 @@ export function compareProvider(
   r2: BenchmarkResult,
   threshold: number
 ): { diff: ProviderDiff; regressed: boolean } {
-  const regressions: string[] = []
-  const changes: string[] = []
-  let regressed = false
+  const changes: string[] = r1.model !== r2.model ? [`model ${r1.model} -> ${r2.model}`] : []
+  const regressions: string[] = r1.success && !r2.success ? ['success -> failure'] : []
 
-  if (r1.model !== r2.model) {
-    changes.push(`model ${r1.model} -> ${r2.model}`)
-  }
-  if (r1.success && !r2.success) {
-    regressions.push('success -> failure')
-    regressed = true
-  }
-
-  const ttft = delta(r1.ttft?.avg ?? r1.metrics.ttft_ms, r2.ttft?.avg ?? r2.metrics.ttft_ms)
-  const tps = delta(r1.tps?.avg ?? r1.metrics.tps, r2.tps?.avg ?? r2.metrics.tps)
+  const ttft = delta(avgOf(r1, 'ttft'), avgOf(r2, 'ttft'))
+  const tps = delta(avgOf(r1, 'tps'), avgOf(r2, 'tps'))
   const cost = delta(r1.cost_usd, r2.cost_usd)
+  regressions.push(...metricRegressions(ttft, tps, cost, threshold))
 
-  // pct is Infinity when the baseline was 0, which is a regression too.
-  if (ttft.pct > threshold) {
-    regressions.push(`TTFT up ${ttft.pct}%`)
-    regressed = true
+  return {
+    diff: { provider: r2.provider, model: r2.model, ttft, tps, cost, regressions, changes },
+    regressed: regressions.length > 0,
   }
-  if (Number.isFinite(tps.pct) && tps.pct < -threshold) {
-    regressions.push(`TPS down ${Math.abs(tps.pct)}%`)
-    regressed = true
-  }
-  if (cost.pct > threshold) {
-    regressions.push(`cost up ${cost.pct}%`)
-    regressed = true
-  }
-
-  return { diff: { provider: r2.provider, model: r2.model, ttft, tps, cost, regressions, changes }, regressed }
 }
 
 /**
