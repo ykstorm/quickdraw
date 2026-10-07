@@ -54,8 +54,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   regression test.
 
 ### Added
-- `live-bench.yml` — manual-dispatch job that benchmarks Claude Haiku live and
-  publishes measured TTFT/TPS/cost (see README → Measured).
+- `live-bench.yml`, a manual-dispatch job that benchmarks Claude Haiku live and
+  reports measured TTFT, TPS and cost (see the README section "A sample
+  measurement").
 
 ## [1.0.3] - 2026-06-20
 

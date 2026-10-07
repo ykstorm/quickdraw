@@ -65,6 +65,9 @@ DRY_RUN=true quickdraw bench --providers openai --runs 1
 
 # Regression-diff two saved runs (exit code 2 if a regression is detected)
 quickdraw diff baseline.json candidate.json
+
+# Print the installed version
+quickdraw --version
 ```
 
 The benchmark table reports avg / p50 / p95 / p99 for both TTFT and TPS, plus
@@ -123,9 +126,10 @@ and the exported adapters (`openaiStream`, `anthropicStream`) throw under
 
 ## A sample measurement
 
-Measured once on 2026-07-05 from a GitHub-hosted runner (region not recorded),
-3 calls to `claude-haiku-4-5` with the committed
-[`bench/standard-prompt.md`](bench/standard-prompt.md) (a ~230-token completion):
+Measured once on 2026-07-05, on the code released as 1.0.4, from a GitHub-hosted
+runner (region not recorded), 3 calls to `claude-haiku-4-5` with the committed
+[`bench/standard-prompt.md`](bench/standard-prompt.md) (a ~230-token completion).
+It has not been measured again on the code that came after 1.0.4:
 
 | Metric | avg | p50 | p95 / p99 |
 |---|---|---|---|
