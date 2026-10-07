@@ -63,6 +63,10 @@ this file but never tagged or published; its notes are folded in here.
   the provider total (#40). A run whose text arrives with no output-token count
   is kept, with its output estimated at half a token per character and marked
   `token_source: "estimate"` (#43).
+- A call that fails with an error settles at the prompt side of its estimate,
+  the prompt's estimated input tokens at the input price, instead of $0, so the
+  ceiling and the provider total count a prompt that may have been billed. Its
+  ledger row carries `settled: "estimate"` (#43).
 - Ledger rows also record `ttft_ms`, `duration_ms` and `token_source` (#33).
 - The fallback completion-token estimate is the answer's length divided by 4,
   not a count of streamed events (#33).

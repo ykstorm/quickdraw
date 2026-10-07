@@ -78,7 +78,8 @@ async function runOnce(
 
   // Reserve budget BEFORE the call using a pessimistic estimate (max output
   // tokens). If this throws CostCeilingError, no network call is made.
-  const reserved = costTracker.reserve(provider, model, estimateTokens(prompt), MAX_OUTPUT_TOKENS)
+  const promptEstimate = estimateTokens(prompt)
+  const reserved = costTracker.reserve(provider, model, promptEstimate, MAX_OUTPUT_TOKENS)
 
   try {
     const streamStart = Date.now()
@@ -116,9 +117,11 @@ async function runOnce(
     const metrics = computeMetrics(streamResult.ttft_ms, streamResult.duration_ms, streamResult.completion_tokens)
     return { provider, model, metrics, cost_usd: cost, success: true }
   } catch (err) {
-    // The call failed after the reservation was taken; release it. Real spend is
-    // unknown for a failed call, so it settles at $0.
-    costTracker.settle(reserved, 0)
+    // The call failed after the reservation was taken. Its real cost is not
+    // reported, but the prompt may have been sent and billed, so it settles at
+    // the prompt side of the estimate (input tokens at the input price), not $0.
+    const cost = costTracker.priceOf(model, promptEstimate, 0)
+    costTracker.settle(reserved, cost)
     const errorMsg = err instanceof Error ? err.message : String(err)
     logger.log({
       timestamp: new Date().toISOString(),
@@ -127,18 +130,22 @@ async function runOnce(
       latency_ms: 0,
       ttft_ms: 0,
       duration_ms: 0,
-      prompt_tokens: 0,
+      prompt_tokens: promptEstimate,
       completion_tokens: 0,
       token_source: 'estimate',
-      cost_usd: 0,
+      cost_usd: cost,
+      settled: 'estimate',
       success: false,
       error: errorMsg,
     })
-    return { provider, model, metrics: emptyMetrics(), cost_usd: 0, success: false, error: errorMsg }
+    return { provider, model, metrics: emptyMetrics(), cost_usd: cost, success: false, error: errorMsg }
   }
 }
 
-/** Settled cost of every run, failed ones included (an empty answer is still billed). */
+/**
+ * Settled cost of every run, failed ones included: an empty answer is still
+ * billed, and a call that failed counts at its prompt-side estimate.
+ */
 const totalCost = (runs: RunResult[]): number => round(runs.reduce((s, r) => s + r.cost_usd, 0), 6)
 
 /** Fold a provider's per-run results into one aggregated BenchmarkResult. */

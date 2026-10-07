@@ -40,6 +40,8 @@ reservation is added synchronously before the network call, a call that could
 cross the ceiling is never started. The reservation is an estimate (half a token
 per prompt character plus the maximum output), so settled spend can exceed the
 ceiling by the amount one call cost beyond its estimate; it cannot run away.
+A call that fails settles at the prompt side of its estimate rather than $0,
+because the prompt may have been billed.
 
 A refused reservation stops that provider: the run is recorded as `skipped: cost
 ceiling reached` and its later runs are not attempted. The next provider makes
