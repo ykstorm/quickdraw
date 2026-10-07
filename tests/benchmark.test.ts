@@ -102,6 +102,23 @@ describe('runBenchmark', () => {
     expect(results[0].perRun?.[0].error).toBe('no content received')
   })
 
+  it('keeps a run whose text arrived with no output count, and estimates the count', async () => {
+    const file = path.join(os.tmpdir(), `quickdraw-estimate-${Date.now()}.jsonl`)
+    const logger = new APICallLogger({ file, truncate: true })
+    try {
+      // "hello world" is 11 characters, estimated at ceil(11 / 2) = 6 output tokens.
+      openaiStream.mockResolvedValue(streamResult({ text: 'hello world', prompt_tokens: 10, completion_tokens: 0 }))
+      const results = await runBenchmark({ providers: ['openai'], runs: 1 }, { logger, onProgress: () => {} })
+
+      expect(results[0].success).toBe(true)
+      expect(results[0].perRun?.[0].metrics.token_count).toBe(6)
+      const [line] = fs.readFileSync(file, 'utf-8').trim().split('\n').map((l) => JSON.parse(l))
+      expect(line).toMatchObject({ success: true, completion_tokens: 6, token_source: 'estimate' })
+    } finally {
+      if (fs.existsSync(file)) fs.unlinkSync(file)
+    }
+  })
+
   it('writes a call with no output to the ledger as a failed run with its real cost', async () => {
     const file = path.join(os.tmpdir(), `quickdraw-empty-${Date.now()}.jsonl`)
     const logger = new APICallLogger({ file, truncate: true })
@@ -121,6 +138,46 @@ describe('runBenchmark', () => {
     } finally {
       if (fs.existsSync(file)) fs.unlinkSync(file)
     }
+  })
+
+  it('settles a failed call at its prompt-side estimate and says so in the ledger', async () => {
+    const file = path.join(os.tmpdir(), `quickdraw-failed-${Date.now()}.jsonl`)
+    const logger = new APICallLogger({ file, truncate: true })
+    try {
+      // 2000 characters are estimated at 1000 prompt tokens, $0.00015 on gpt-4o-mini.
+      openaiStream.mockRejectedValue(new Error('network boom'))
+      const results = await runBenchmark(
+        { providers: ['openai'], runs: 1, prompt: 'x'.repeat(2000) },
+        { logger, onProgress: () => {} }
+      )
+
+      const [line] = fs.readFileSync(file, 'utf-8').trim().split('\n').map((l) => JSON.parse(l))
+      expect(line).toMatchObject({
+        success: false,
+        error: 'network boom',
+        prompt_tokens: 1000,
+        cost_usd: 0.00015,
+        settled: 'estimate',
+      })
+      expect(results[0].cost_usd).toBe(0.00015)
+    } finally {
+      if (fs.existsSync(file)) fs.unlinkSync(file)
+    }
+  })
+
+  it('counts failed calls against the ceiling', async () => {
+    // A Haiku reservation for a 2000-character prompt is $0.00356 (1000 prompt
+    // tokens plus 512 output tokens), and a failed call settles at the $0.001
+    // prompt side. Under a $0.0046 cap two calls fit; the third does not,
+    // because the two failures already count $0.002.
+    anthropicStream.mockRejectedValue(new Error('network boom'))
+    const results = await runBenchmark(
+      { providers: ['anthropic'], runs: 3, costCap: 0.0046, prompt: 'x'.repeat(2000) },
+      { onProgress: () => {} }
+    )
+    expect(anthropicStream).toHaveBeenCalledTimes(2)
+    expect(results[0].perRun?.map((r) => r.error)).toEqual(['network boom', 'network boom', 'skipped: cost ceiling reached'])
+    expect(results[0].cost_usd).toBe(0.002)
   })
 
   it('refuses to run under DRY_RUN instead of calling a provider without a key', async () => {

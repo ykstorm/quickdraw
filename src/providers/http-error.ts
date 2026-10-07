@@ -4,11 +4,12 @@
  *
  * API keys must never reach stdout, stderr, the JSONL ledger, or a results file.
  * A provider's raw error body can echo the request (including the key), so these
- * run through `redactSecrets`: HTTP error messages (`sanitizeHttpError`), every
- * ledger line (logger.ts), the --json file and everything the CLI prints
- * (cli.ts), runBenchmark's progress messages (benchmark.ts), the error column of
- * the results table (report.ts) and the fatal error line (bin/cli.ts). Results
- * returned to a library caller are not redacted.
+ * run through `redactSecrets`: HTTP error messages (`sanitizeHttpError`),
+ * mid-stream timeouts (`withStreamTimeout`), every ledger line (logger.ts), the
+ * --json file and everything the CLI prints (cli.ts), runBenchmark's progress
+ * messages (benchmark.ts), the error column of the results table (report.ts)
+ * and the fatal error line (bin/cli.ts). Results returned to a library caller
+ * are not redacted.
  */
 
 /** Patterns for provider API keys and bearer tokens. */
@@ -32,6 +33,23 @@ export function requestTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
 /** True when an error is a fetch/AbortSignal timeout or abort. */
 export function isAbortError(err: unknown): boolean {
   return err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')
+}
+
+/**
+ * Wait for a stream to be read to the end. A timeout part-way through the
+ * answer becomes a one-line error shaped like the other failures,
+ * `<provider> timeout after <ms> ms, <n> tokens received`, where the tokens are
+ * estimated from the text so far at four characters a token, as the adapters
+ * do when there is no usage report. Any other error is rethrown as it is.
+ */
+export async function withStreamTimeout(provider: string, read: Promise<void>, received: () => string): Promise<void> {
+  try {
+    await read
+  } catch (err) {
+    if (!isAbortError(err)) throw err
+    const tokens = Math.ceil(received().length / 4)
+    throw new Error(redactSecrets(`${provider} timeout after ${requestTimeoutMs()} ms, ${tokens} tokens received`))
+  }
 }
 
 /** Replace anything that looks like an API key or bearer token with a marker. */

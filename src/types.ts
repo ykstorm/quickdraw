@@ -31,9 +31,14 @@ export interface APICallLogEntry {
   duration_ms: number
   prompt_tokens: number
   completion_tokens: number
-  /** Where the token counts came from: provider `usage` or a char/4 estimate. */
+  /** Where the token counts came from: provider `usage`, or an estimate from the text length. */
   token_source: 'usage' | 'estimate'
   cost_usd: number
+  /**
+   * Set when cost_usd is an estimate rather than a price on reported tokens: a
+   * call that failed settles at the prompt side of its reservation.
+   */
+  settled?: 'estimate'
   success: boolean
   error?: string
 }

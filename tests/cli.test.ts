@@ -326,4 +326,23 @@ describe('cli: diff', () => {
     expect(code).toBe(1)
     expect(h.err.join('\n')).toMatch(/--threshold must be a number/)
   })
+
+  it('rejects a negative or partly numeric --threshold, and takes a fractional one', async () => {
+    const files: Record<string, string> = { 'a.json': run1, 'b.json': run1 }
+    for (const bad of ['-5', '5abc', '']) {
+      const h = harness()
+      const code = await run(['diff', 'a.json', 'b.json', '--threshold', bad], {
+        ...h.deps,
+        readFile: (p: string) => files[p],
+      })
+      expect(code).toBe(1)
+      expect(h.err.join('\n')).toContain(`--threshold must be a number of 0 or more (got ${bad})`)
+    }
+    const h = harness()
+    const code = await run(['diff', 'a.json', 'b.json', '--threshold', '0.5'], {
+      ...h.deps,
+      readFile: (p: string) => files[p],
+    })
+    expect(code).toBe(0)
+  })
 })

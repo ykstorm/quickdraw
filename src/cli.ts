@@ -57,6 +57,14 @@ function positiveInt(raw: unknown, flag: string): number {
   return n
 }
 
+/** Like positiveInt, for a percent that may be fractional: a finite number, 0 or more. */
+function nonNegativeNumber(raw: unknown, flag: string): number {
+  const s = String(raw).trim()
+  const n = s === '' ? NaN : Number(s)
+  if (!Number.isFinite(n) || n < 0) throw new Error(`${flag} must be a number of 0 or more (got ${raw})`)
+  return n
+}
+
 /** Reads the prompt file, rejecting anything that is not a file, too big, or empty. */
 function readPrompt(file: string, maxBytes: number, ctx: Ctx): string {
   const stat = ctx.statFile(file)
@@ -134,8 +142,7 @@ async function benchAction(opts: BenchOpts, ctx: Ctx): Promise<number> {
 
 /** The `diff` subcommand. Returns the intended exit code. */
 function diffAction(run1Path: string, run2Path: string, opts: Record<string, string>, ctx: Ctx): number {
-  const threshold = parseFloat(opts.threshold)
-  if (!Number.isFinite(threshold)) throw new Error(`--threshold must be a number (got ${opts.threshold})`)
+  const threshold = nonNegativeNumber(opts.threshold, '--threshold')
   const r1 = parseRunFile(ctx.readFile(run1Path))
   const r2 = parseRunFile(ctx.readFile(run2Path))
   const d = diffRuns(r1, r2, threshold)
@@ -205,7 +212,7 @@ function buildProgram(ctx: Ctx, setExit: (code: number) => void): Command {
     .description('Regression-diff two saved benchmark run JSON files')
     .argument('<run1>', 'First (baseline) run JSON file')
     .argument('<run2>', 'Second (candidate) run JSON file')
-    .option('-t, --threshold <pct>', 'Regression threshold percent', '10')
+    .option('-t, --threshold <pct>', 'Regression threshold percent, 0 or more', '10')
     .action((run1Path, run2Path, opts) => {
       setExit(diffAction(run1Path, run2Path, opts, ctx))
     })

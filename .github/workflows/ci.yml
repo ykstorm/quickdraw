@@ -72,6 +72,15 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: { node-version: '20', registry-url: 'https://registry.npmjs.org' }
       - run: npm ci
+      # npm publishes the version in package.json whatever the tag says, so a
+      # tag that names another version would publish the wrong release.
+      - name: Check the tag matches package.json
+        run: |
+          expected="v$(node -p "require('./package.json').version")"
+          if [ "$expected" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match the package.json version ${expected}. Tag the commit as ${expected}, or set the version in package.json and tag again."
+            exit 1
+          fi
       - run: npm run build
       - run: npm publish --provenance --access public
         env: { NODE_AUTH_TOKEN: '${{ secrets.NPM_TOKEN }}' }
