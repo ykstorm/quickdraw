@@ -4,21 +4,10 @@ import * as os from 'os'
 import * as path from 'path'
 import { APICallLogger } from '../src/logger'
 import { runBenchmark } from '../src/benchmark'
+import { sseResponse, timedOutResponse } from './fake-stream'
 
 // runBenchmark with the real adapters and a fake fetch, so the whole path from
 // the SSE body to the ledger row runs without a network.
-
-/** A fetch Response whose body streams the given SSE lines. */
-function sseResponse(lines: string[]): Response {
-  const encoder = new TextEncoder()
-  const body = new ReadableStream<Uint8Array>({
-    start(controller) {
-      for (const line of lines) controller.enqueue(encoder.encode(line))
-      controller.close()
-    },
-  })
-  return { ok: true, status: 200, body, text: async () => lines.join('') } as unknown as Response
-}
 
 const ORIGINAL_ENV = { ...process.env }
 let file: string
@@ -58,5 +47,16 @@ describe('runBenchmark over a fake fetch', () => {
     expect(results[0].perRun?.[0].error).toBe('no content received')
     // Still billed: 20 input and 3 output tokens on claude-haiku-4-5.
     expect(ledger()[0]).toMatchObject({ success: false, error: 'no content received', cost_usd: 0.000035 })
+  })
+
+  it('prints a mid-stream timeout in the same shape as the other failures', async () => {
+    process.env.QUICKDRAW_TIMEOUT_MS = '5000'
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(timedOutResponse(['data: {"choices":[{"delta":{"content":"hey"}}]}\n'])))
+    const seen: string[] = []
+    await runBenchmark({ providers: ['openai'], runs: 1 }, { logger, onProgress: (m) => seen.push(m) })
+
+    const message = 'OpenAI timeout after 5000 ms, 1 tokens received'
+    expect(seen).toContain(`  fail openai run 1/1: ${message}`)
+    expect(ledger()[0]).toMatchObject({ success: false, error: message })
   })
 })

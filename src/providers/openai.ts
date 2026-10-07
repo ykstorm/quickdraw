@@ -1,7 +1,7 @@
 import { ProviderStreamResult } from '../types'
 import { assertLiveCall } from '../preflight'
 import { MAX_OUTPUT_TOKENS } from '../cost-tracker'
-import { sanitizeHttpError, requestTimeoutMs, isAbortError } from './http-error'
+import { sanitizeHttpError, requestTimeoutMs, isAbortError, withStreamTimeout } from './http-error'
 import { readSSEData } from './sse'
 
 export const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini'
@@ -52,7 +52,7 @@ export async function openaiStream(
   let usagePromptTokens = 0
   let usageCompletionTokens = 0
 
-  await readSSEData(response.body, (data) => {
+  const read = readSSEData(response.body, (data) => {
     try {
       const event = JSON.parse(data)
       if (event.choices?.[0]?.delta?.content) {
@@ -70,6 +70,7 @@ export async function openaiStream(
       // skip malformed lines
     }
   })
+  await withStreamTimeout('OpenAI', read, () => fullText)
 
   const duration_ms = Date.now() - start
 

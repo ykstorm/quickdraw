@@ -1,7 +1,7 @@
 import { ProviderStreamResult } from '../types'
 import { assertLiveCall } from '../preflight'
 import { MAX_OUTPUT_TOKENS } from '../cost-tracker'
-import { sanitizeHttpError, requestTimeoutMs, isAbortError } from './http-error'
+import { sanitizeHttpError, requestTimeoutMs, isAbortError, withStreamTimeout } from './http-error'
 import { readSSEData } from './sse'
 
 export const DEFAULT_ANTHROPIC_MODEL = 'claude-haiku-4-5'
@@ -82,13 +82,14 @@ export async function anthropicStream(
 
   const s: StreamState = { text: '', ttft_ms: 0, promptTokens: 0, completionTokens: 0 }
 
-  await readSSEData(response.body, (data) => {
+  const read = readSSEData(response.body, (data) => {
     try {
       applyEvent(JSON.parse(data), s, start, onChunk)
     } catch {
       // skip malformed lines
     }
   })
+  await withStreamTimeout('Anthropic', read, () => s.text)
 
   const duration_ms = Date.now() - start
 

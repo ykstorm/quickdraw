@@ -77,7 +77,9 @@ this file but never tagged or published; its notes are folded in here.
   entry (#33, #40). The TTFT and TPS p95 are compared as well as the averages,
   and a regression in either counts (#43).
 - Provider requests time out after `QUICKDRAW_TIMEOUT_MS`, default 120 s, and
-  the timeout is a failed run (#33).
+  the timeout is a failed run (#33). A timeout part-way through the answer
+  reads `<provider> timeout after <ms> ms, <n> tokens received` instead of the
+  raw abort message (#43).
 - `--runs` and `--max-prompt-bytes` take whole numbers only (#36); `--threshold`
   must be a number of 0 or more, so a negative one exits 1 (#43); a prompt path
   that is not a file, or is larger than `--max-prompt-bytes` (default 1 MiB), is

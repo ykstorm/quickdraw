@@ -2,23 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { openaiStream } from '../src/providers/openai'
 import { anthropicStream } from '../src/providers/anthropic'
 import { DryRunError, MissingApiKeyError } from '../src/preflight'
-
-/** Build a fetch Response whose body streams the given SSE lines. */
-function sseResponse(lines: string[], ok = true, status = 200): Response {
-  const encoder = new TextEncoder()
-  const body = new ReadableStream<Uint8Array>({
-    start(controller) {
-      for (const line of lines) controller.enqueue(encoder.encode(line))
-      controller.close()
-    },
-  })
-  return {
-    ok,
-    status,
-    body,
-    text: async () => lines.join(''),
-  } as unknown as Response
-}
+import { sseResponse, timedOutResponse } from './fake-stream'
 
 const ORIGINAL_ENV = { ...process.env }
 
@@ -108,6 +92,31 @@ describe('openaiStream', () => {
     )
     await expect(openaiStream('hi')).rejects.toThrow(/timed out/)
   })
+
+  it('reports a timeout part-way through the answer with how much had arrived', async () => {
+    process.env.QUICKDRAW_TIMEOUT_MS = '5000'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        timedOutResponse([
+          'data: {"choices":[{"delta":{"content":"Hello"}}]}\n',
+          'data: {"choices":[{"delta":{"content":" world"}}]}\n',
+        ])
+      )
+    )
+    // "Hello world" is 11 characters, ceil(11 / 4) = 3 tokens.
+    await expect(openaiStream('hi')).rejects.toThrow(/^OpenAI timeout after 5000 ms, 3 tokens received$/)
+  })
+
+  it('passes any other stream error through unchanged', async () => {
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.error(new Error('socket hang up'))
+      },
+    })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, body } as unknown as Response))
+    await expect(openaiStream('hi')).rejects.toThrow(/^socket hang up$/)
+  })
 })
 
 describe('anthropicStream', () => {
@@ -185,5 +194,20 @@ describe('anthropicStream', () => {
     await anthropicStream('hi', undefined, 'claude-sonnet-4-6')
     const [, init] = fetchMock.mock.calls[0]
     expect(JSON.parse(init.body as string).model).toBe('claude-sonnet-4-6')
+  })
+
+  it('reports a timeout part-way through the answer with how much had arrived', async () => {
+    process.env.QUICKDRAW_TIMEOUT_MS = '5000'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        timedOutResponse([
+          'data: {"type":"message_start","message":{"usage":{"input_tokens":20,"output_tokens":1}}}\n',
+          'data: {"type":"content_block_delta","delta":{"text":"Hi there"}}\n',
+        ])
+      )
+    )
+    // "Hi there" is 8 characters, ceil(8 / 4) = 2 tokens.
+    await expect(anthropicStream('hi')).rejects.toThrow(/^Anthropic timeout after 5000 ms, 2 tokens received$/)
   })
 })
