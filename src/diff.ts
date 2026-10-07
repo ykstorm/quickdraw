@@ -36,6 +36,48 @@ function delta(before: number, after: number): MetricDelta {
   }
 }
 
+const isNumber = (v: unknown): v is number => typeof v === 'number'
+
+/** `metrics.ttft_ms` and `metrics.tps` are the fallbacks diffRuns reads, so both must be numbers. */
+function checkMetrics(metrics: unknown, i: number): void {
+  if (typeof metrics !== 'object' || metrics === null) {
+    throw new Error(`Run file entry ${i} is missing a "metrics" object.`)
+  }
+  const m = metrics as Record<string, unknown>
+  if (!isNumber(m.ttft_ms) || !isNumber(m.tps)) {
+    throw new Error(`Run file entry ${i} has a "metrics" object without numeric "ttft_ms" and "tps".`)
+  }
+}
+
+/** An optional `ttft` / `tps` block is read through its `avg`, which must be a number when set. */
+function checkPercentiles(e: Record<string, unknown>, i: number): void {
+  for (const key of ['ttft', 'tps']) {
+    const avg = (e[key] as { avg?: unknown } | null | undefined)?.avg
+    if (avg != null && !isNumber(avg)) {
+      throw new Error(`Run file entry ${i} has a non-numeric "${key}.avg".`)
+    }
+  }
+}
+
+/**
+ * Shape-check every field diffRuns reads, so a malformed file fails here with a
+ * clean Error rather than with a TypeError once the numbers are compared.
+ */
+function checkEntry(entry: unknown, i: number): void {
+  const e = entry as Record<string, unknown>
+  if (!e || typeof e !== 'object') {
+    throw new Error(`Run file entry ${i} is not an object.`)
+  }
+  if (typeof e.provider !== 'string' || typeof e.model !== 'string') {
+    throw new Error(`Run file entry ${i} is missing string "provider"/"model" fields.`)
+  }
+  checkMetrics(e.metrics, i)
+  if (!isNumber(e.cost_usd)) {
+    throw new Error(`Run file entry ${i} is missing a numeric "cost_usd".`)
+  }
+  checkPercentiles(e, i)
+}
+
 /**
  * Parse a saved run file's contents into BenchmarkResult[]. Accepts either a
  * bare array or a `{ results: [...] }` envelope.
@@ -51,23 +93,7 @@ export function parseRunFile(raw: string): BenchmarkResult[] {
   if (!Array.isArray(arr)) {
     throw new Error('Run file must be a JSON array of results (or { results: [...] }).')
   }
-  // Shape-check each entry so a malformed file fails with a clean Error rather
-  // than a downstream TypeError when fields are read.
-  arr.forEach((entry, i) => {
-    const e = entry as Record<string, unknown>
-    if (!e || typeof e !== 'object') {
-      throw new Error(`Run file entry ${i} is not an object.`)
-    }
-    if (typeof e.provider !== 'string' || typeof e.model !== 'string') {
-      throw new Error(`Run file entry ${i} is missing string "provider"/"model" fields.`)
-    }
-    if (typeof e.metrics !== 'object' || e.metrics === null) {
-      throw new Error(`Run file entry ${i} is missing a "metrics" object.`)
-    }
-    if (typeof e.cost_usd !== 'number') {
-      throw new Error(`Run file entry ${i} is missing a numeric "cost_usd".`)
-    }
-  })
+  arr.forEach(checkEntry)
   return arr as BenchmarkResult[]
 }
 

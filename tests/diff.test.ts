@@ -39,6 +39,14 @@ describe('parseRunFile', () => {
     expect(() => parseRunFile(JSON.stringify([{ foo: 1 }]))).toThrow(/entry 0 is missing string/)
     expect(() => parseRunFile(JSON.stringify(['notanobject']))).toThrow(/entry 0/)
   })
+  it('rejects an empty metrics object instead of passing it on to diffRuns', () => {
+    const entry = { provider: 'openai', model: 'gpt-4o-mini', metrics: {}, cost_usd: 0.001 }
+    expect(() => parseRunFile(JSON.stringify([entry]))).toThrow(
+      /entry 0 has a "metrics" object without numeric "ttft_ms" and "tps"/
+    )
+    const badAvg = { ...entry, metrics: { ttft_ms: 100, tps: 50 }, ttft: { avg: 'fast' } }
+    expect(() => parseRunFile(JSON.stringify([badAvg]))).toThrow(/entry 0 has a non-numeric "ttft.avg"/)
+  })
 })
 
 describe('diffRuns', () => {

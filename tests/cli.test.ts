@@ -247,6 +247,19 @@ describe('cli: diff', () => {
     expect(code).toBe(1)
   })
 
+  it('fails with a clean message, not a TypeError, on an entry with empty metrics', async () => {
+    const h = harness()
+    const empty = JSON.stringify([{ provider: 'openai', model: 'gpt-4o-mini', metrics: {}, cost_usd: 0.001, success: true }])
+    const files: Record<string, string> = { 'a.json': run1, 'b.json': empty }
+    const code = await run(['diff', 'a.json', 'b.json'], {
+      ...h.deps,
+      readFile: (p: string) => files[p],
+    })
+    expect(code).toBe(1)
+    expect(h.err.join('\n')).toMatch(/without numeric "ttft_ms" and "tps"/)
+    expect(h.err.join('\n')).not.toMatch(/Cannot read properties/)
+  })
+
   it('rejects a non-numeric --threshold', async () => {
     const h = harness()
     const files: Record<string, string> = { 'a.json': run1, 'b.json': run1 }
