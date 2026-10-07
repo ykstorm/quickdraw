@@ -187,6 +187,37 @@ describe('cli: bench live (mocked runBenchmark)', () => {
     expect(written['out.json']).toMatch(/\[REDACTED\]/)
   })
 
+  it('redacts secrets from progress lines and the table it prints', async () => {
+    const h = harness()
+    const bench = vi.fn().mockImplementation(async (_cfg, deps: { onProgress: (m: string) => void }) => {
+      deps.onProgress('  fail openai run 1/1: auth failed for sk-live-FAKE_KEY_9999')
+      return [sampleResult({ success: false, error: 'auth failed for sk-live-FAKE_KEY_9999' })]
+    })
+    const code = await run(['bench', '--providers', 'openai', '--runs', '1'], {
+      ...h.deps,
+      env: { OPENAI_API_KEY: 'sk-test' },
+      runBenchmark: bench,
+    })
+    expect(code).toBe(1)
+    const text = h.out.join('\n')
+    expect(text).not.toMatch(/FAKE_KEY_9999/)
+    expect(text).toMatch(/fail openai run 1\/1: auth failed for \[REDACTED\]/)
+    expect(text).toMatch(/ERROR: auth failed for \[REDACTED\]/)
+  })
+
+  it('redacts secrets from the error line it prints', async () => {
+    const h = harness()
+    const bench = vi.fn().mockRejectedValue(new Error('upstream echoed Authorization: Bearer abc.def-123'))
+    const code = await run(['bench', '--providers', 'openai', '--runs', '1'], {
+      ...h.deps,
+      env: { OPENAI_API_KEY: 'sk-test' },
+      runBenchmark: bench,
+    })
+    expect(code).toBe(1)
+    expect(h.err.join('\n')).not.toMatch(/abc\.def-123/)
+    expect(h.err.join('\n')).toMatch(/Error: upstream echoed Authorization: \[REDACTED\]/)
+  })
+
   it('rejects a model with no pricing before any network call', async () => {
     const h = harness()
     const bench = vi.fn()

@@ -1,4 +1,5 @@
 import { BenchmarkResult } from './types'
+import { redactSecrets } from './providers/http-error'
 
 /**
  * Render a benchmark result set as a plain-text table covering TTFT (avg/p50/
@@ -24,7 +25,7 @@ export function formatBenchTable(results: BenchmarkResult[]): string {
           r.model.padEnd(22) +
           String(r.runs ?? 0).padStart(5) +
           '  ' +
-          `ERROR: ${r.error ?? 'unknown'}`
+          `ERROR: ${redactSecrets(r.error ?? 'unknown')}`
       )
       continue
     }

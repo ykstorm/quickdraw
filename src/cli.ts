@@ -148,9 +148,12 @@ function diffAction(run1Path: string, run2Path: string, opts: Record<string, str
  * error / regression) instead of calling process.exit, so it is fully testable.
  */
 export async function run(argv: string[], deps: CliDeps = {}): Promise<number> {
+  const out = deps.out ?? ((m: string) => console.log(m))
+  const err = deps.err ?? ((m: string) => console.error(m))
   const ctx: Ctx = {
-    out: deps.out ?? ((m: string) => console.log(m)),
-    err: deps.err ?? ((m: string) => console.error(m)),
+    // Everything the CLI prints is redacted, like the ledger and the --json file.
+    out: (m: string) => out(redactSecrets(m)),
+    err: (m: string) => err(redactSecrets(m)),
     env: deps.env ?? process.env,
     readFile: deps.readFile ?? ((p: string) => fs.readFileSync(p, 'utf-8')),
     writeFile:

@@ -2,6 +2,7 @@ import { BenchmarkConfig, BenchmarkResult, ProviderName, ProviderStreamResult, R
 import { CostTracker, CostCeilingError, MAX_OUTPUT_TOKENS } from './cost-tracker'
 import { APICallLogger } from './logger'
 import { isTruthy } from './preflight'
+import { redactSecrets } from './providers/http-error'
 import { computeMetrics } from './metrics'
 import { anthropicStream, DEFAULT_ANTHROPIC_MODEL } from './providers/anthropic'
 import { openaiStream, DEFAULT_OPENAI_MODEL } from './providers/openai'
@@ -168,11 +169,13 @@ export async function runBenchmark(config: BenchmarkConfig, deps: BenchmarkDeps 
   if (isTruthy(process.env.DRY_RUN)) {
     throw new Error('DRY_RUN is set: runBenchmark makes network calls. Unset it, or use the CLI, which prints the plan instead.')
   }
+  const progress = deps.onProgress ?? ((m: string) => console.log(m))
   const ctx: BenchContext = {
     config,
     costTracker: new CostTracker(config.costCap ?? 2.0, config.allowUnpriced ?? false),
     logger: deps.logger ?? new APICallLogger({ truncate: true }),
-    onProgress: deps.onProgress ?? ((m: string) => console.log(m)),
+    // A failed run's line carries the provider's error text, so redact it.
+    onProgress: (m: string) => progress(redactSecrets(m)),
   }
   const results: BenchmarkResult[] = []
 

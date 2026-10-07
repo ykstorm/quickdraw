@@ -197,6 +197,14 @@ describe('runBenchmark', () => {
     expect(results[0].error).toMatch(/network boom/)
   })
 
+  it('redacts secrets from progress messages', async () => {
+    openaiStream.mockRejectedValue(new Error('network boom for sk-proj-LEAK_1234'))
+    const seen: string[] = []
+    await runBenchmark({ providers: ['openai'], runs: 1 }, { onProgress: (m) => seen.push(m) })
+    expect(seen.join(' ')).not.toMatch(/LEAK_1234/)
+    expect(seen.join(' ')).toMatch(/fail openai run 1\/1: network boom for \[REDACTED\]/)
+  })
+
   it('passes config.onChunk through to the provider stream', async () => {
     const seen: string[] = []
     openaiStream.mockImplementation(async (_p: string, onChunk?: (t: string) => void) => {

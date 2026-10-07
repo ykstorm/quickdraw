@@ -35,7 +35,7 @@ slightly above the ceiling when a call cost more than its estimate.
 2. `runBenchmark` loops over the providers and runs. Before each call it reserves a pessimistic cost estimate against the ceiling. If the estimate would cross the ceiling, the call is not made and the rest of that provider's runs are skipped. The skipped run is recorded with the error `skipped: cost ceiling reached`; a provider with no completed run is reported with that error and counts as failed for the exit code. The next provider still runs if its own estimate fits the budget that is left.
 3. Each provider streams a response; the first token's arrival time gives TTFT, the rest of the stream gives tokens per second and total duration.
 4. Every call is written to `api_calls.jsonl` as it happens (the file is started fresh each run), and the summary numbers are computed from the same per-call records.
-5. Results print as a table and, with `--json`, are written with secrets redacted.
+5. Results print as a table and, with `--json`, are also written to a file. API keys and bearer tokens are redacted from everything the CLI prints (progress lines, the table, error messages) and from everything it writes (the ledger and the `--json` file).
 
 Metrics captured per run:
 
