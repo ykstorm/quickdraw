@@ -9,7 +9,7 @@ install, import or script are marked Breaking.
 
 - Bearer tokens are redacted whatever the letter case of the scheme; before, only the exact spelling Bearer was caught (#44).
 
-## 2.0.0 - unreleased
+## 2.0.0 - 2026-10-07
 
 Everything below is relative to 1.0.4 (tag `v1.0.4`, commit `63ef1d2`). That
 commit is not on `main`: `main` restarts at root commit `e4fdd8e` (2026-07-07),
