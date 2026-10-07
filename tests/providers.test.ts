@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { openaiStream } from '../src/providers/openai'
 import { anthropicStream } from '../src/providers/anthropic'
-import { MissingApiKeyError } from '../src/preflight'
+import { DryRunError, MissingApiKeyError } from '../src/preflight'
 
 /** Build a fetch Response whose body streams the given SSE lines. */
 function sseResponse(lines: string[], ok = true, status = 200): Response {
@@ -36,6 +36,16 @@ describe('openaiStream', () => {
   it('preflights: throws MissingApiKeyError without a key', async () => {
     delete process.env.OPENAI_API_KEY
     await expect(openaiStream('hi')).rejects.toBeInstanceOf(MissingApiKeyError)
+  })
+
+  it('sends no request under DRY_RUN, with or without a key', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    process.env.DRY_RUN = 'true'
+    await expect(openaiStream('hi')).rejects.toThrow(/DRY_RUN is set/)
+    delete process.env.OPENAI_API_KEY
+    await expect(openaiStream('hi')).rejects.toBeInstanceOf(DryRunError)
+    expect(fetchMock).toHaveBeenCalledTimes(0)
   })
 
   it('parses content deltas and the usage field', async () => {
@@ -109,6 +119,16 @@ describe('anthropicStream', () => {
   it('preflights: throws MissingApiKeyError without a key', async () => {
     delete process.env.ANTHROPIC_API_KEY
     await expect(anthropicStream('hi')).rejects.toBeInstanceOf(MissingApiKeyError)
+  })
+
+  it('sends no request under DRY_RUN, with or without a key', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    process.env.DRY_RUN = '1'
+    await expect(anthropicStream('hi')).rejects.toThrow(/DRY_RUN is set/)
+    delete process.env.ANTHROPIC_API_KEY
+    await expect(anthropicStream('hi')).rejects.toBeInstanceOf(DryRunError)
+    expect(fetchMock).toHaveBeenCalledTimes(0)
   })
 
   it('parses deltas and usage from message_start + message_delta', async () => {

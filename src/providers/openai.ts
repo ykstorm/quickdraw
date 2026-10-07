@@ -1,5 +1,5 @@
 import { ProviderStreamResult } from '../types'
-import { assertApiKey } from '../preflight'
+import { assertLiveCall } from '../preflight'
 import { MAX_OUTPUT_TOKENS } from '../cost-tracker'
 import { sanitizeHttpError, requestTimeoutMs, isAbortError } from './http-error'
 import { readSSEData } from './sse'
@@ -11,8 +11,8 @@ export async function openaiStream(
   onChunk?: (text: string) => void,
   model: string = DEFAULT_OPENAI_MODEL
 ): Promise<ProviderStreamResult> {
-  // Preflight: never send "Bearer undefined".
-  assertApiKey('openai')
+  // Preflight: no request under DRY_RUN, and never "Bearer undefined".
+  assertLiveCall('openai')
   const apiKey = process.env.OPENAI_API_KEY as string
 
   const start = Date.now()

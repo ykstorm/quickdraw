@@ -102,6 +102,10 @@ const results = await runBenchmark({
 // results: BenchmarkResult[] with per-provider stream metrics
 ```
 
+Only the CLI turns `DRY_RUN` into a printed plan. In library mode, `runBenchmark`
+and the exported adapters (`openaiStream`, `anthropicStream`) throw under
+`DRY_RUN` instead of calling a provider, so no request is ever sent.
+
 ---
 
 ## Stack

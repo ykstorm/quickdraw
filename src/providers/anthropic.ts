@@ -1,5 +1,5 @@
 import { ProviderStreamResult } from '../types'
-import { assertApiKey } from '../preflight'
+import { assertLiveCall } from '../preflight'
 import { MAX_OUTPUT_TOKENS } from '../cost-tracker'
 import { sanitizeHttpError, requestTimeoutMs, isAbortError } from './http-error'
 import { readSSEData } from './sse'
@@ -12,8 +12,8 @@ export async function anthropicStream(
   onChunk?: (text: string) => void,
   model: string = DEFAULT_ANTHROPIC_MODEL
 ): Promise<ProviderStreamResult> {
-  // Preflight: never send "Bearer undefined" / empty x-api-key.
-  assertApiKey('anthropic')
+  // Preflight: no request under DRY_RUN, and never an empty x-api-key.
+  assertLiveCall('anthropic')
   const apiKey = process.env.ANTHROPIC_API_KEY as string
 
   const start = Date.now()
