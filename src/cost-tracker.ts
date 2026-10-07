@@ -1,8 +1,8 @@
 /**
  * Maximum output tokens requested from every provider. This is the pessimistic
  * upper bound used when reserving budget BEFORE a call, and it must match the
- * `max_tokens` sent by the provider clients so the reservation can never be
- * smaller than the call could actually cost.
+ * `max_tokens` sent by the provider clients so the output side of the
+ * reservation is a true upper bound. The prompt side is only an estimate.
  */
 export const MAX_OUTPUT_TOKENS = 512
 
@@ -56,10 +56,11 @@ const round6 = (n: number) => parseFloat(n.toFixed(6))
 /**
  * Tracks spend against a hard ceiling. The ceiling is enforced by `reserve()`,
  * which runs BEFORE a call and charges a pessimistic estimate (max output
- * tokens) against the budget; `settle()` then swaps that reservation for the
- * call's real cost once it completes. Because the reservation is added
- * synchronously before any network call, the ceiling can never be overshot by
- * an in-flight request.
+ * tokens) against the budget, so a call is only started when its estimate fits.
+ * `settle()` then swaps that reservation for the call's real cost once it
+ * completes. The prompt side of the estimate can be low, so settled spend can
+ * end up above the ceiling by the amount one call cost beyond its estimate;
+ * every reservation after that is refused.
  */
 export class CostTracker {
   private _spent = 0 // settled, real cost of completed calls

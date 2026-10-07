@@ -78,7 +78,7 @@ describe('openaiStream', () => {
     )
     const r = await openaiStream('hi')
     expect(r.token_source).toBe('estimate')
-    expect(r.completion_tokens).toBe(1) // one content chunk
+    expect(r.completion_tokens).toBe(1) // ceil(3 / 4): "hey" is 3 characters, estimated at 4 per token
   })
 
   it('throws on a non-ok response', async () => {
