@@ -1,5 +1,5 @@
 import { ProviderStreamResult } from '../types'
-import { assertApiKey } from '../preflight'
+import { assertLiveCall } from '../preflight'
 import { MAX_OUTPUT_TOKENS } from '../cost-tracker'
 import { sanitizeHttpError, requestTimeoutMs, isAbortError } from './http-error'
 import { readSSEData } from './sse'
@@ -7,13 +7,45 @@ import { readSSEData } from './sse'
 export const DEFAULT_ANTHROPIC_MODEL = 'claude-haiku-4-5'
 const SYSTEM = 'You are a helpful assistant.'
 
+/** What the stream has delivered so far. */
+interface StreamState {
+  text: string
+  ttft_ms: number
+  promptTokens: number
+  completionTokens: number
+}
+
+function onMessageStart(usage: { input_tokens?: number; output_tokens?: number } | undefined, s: StreamState): void {
+  if (usage?.input_tokens != null) s.promptTokens = usage.input_tokens
+  if (usage?.output_tokens != null) s.completionTokens = usage.output_tokens
+}
+
+function onText(text: string, s: StreamState, start: number, onChunk?: (text: string) => void): void {
+  if (s.ttft_ms === 0) s.ttft_ms = Date.now() - start
+  s.text += text
+  if (onChunk) onChunk(text)
+}
+
+/** Fold one parsed SSE event into the stream state. */
+function applyEvent(event: any, s: StreamState, start: number, onChunk?: (text: string) => void): void {
+  if (event.type === 'message_start') {
+    // Prompt-token usage is on the initial message.
+    onMessageStart(event.message?.usage, s)
+  } else if (event.type === 'content_block_delta' && event.delta?.text) {
+    onText(event.delta.text, s, start, onChunk)
+  } else if (event.type === 'message_delta' && event.usage?.output_tokens != null) {
+    // Final cumulative output-token count.
+    s.completionTokens = event.usage.output_tokens
+  }
+}
+
 export async function anthropicStream(
   prompt: string,
   onChunk?: (text: string) => void,
   model: string = DEFAULT_ANTHROPIC_MODEL
 ): Promise<ProviderStreamResult> {
-  // Preflight: never send "Bearer undefined" / empty x-api-key.
-  assertApiKey('anthropic')
+  // Preflight: no request under DRY_RUN, and never an empty x-api-key.
+  assertLiveCall('anthropic')
   const apiKey = process.env.ANTHROPIC_API_KEY as string
 
   const start = Date.now()
@@ -48,27 +80,11 @@ export async function anthropicStream(
 
   if (!response.body) throw new Error('No response body')
 
-  let fullText = ''
-  let ttft_ms = 0
-  let usagePromptTokens = 0
-  let usageCompletionTokens = 0
+  const s: StreamState = { text: '', ttft_ms: 0, promptTokens: 0, completionTokens: 0 }
 
   await readSSEData(response.body, (data) => {
     try {
-      const event = JSON.parse(data)
-      if (event.type === 'message_start') {
-        // Prompt-token usage is on the initial message.
-        const u = event.message?.usage
-        if (u?.input_tokens != null) usagePromptTokens = u.input_tokens
-        if (u?.output_tokens != null) usageCompletionTokens = u.output_tokens
-      } else if (event.type === 'content_block_delta' && event.delta?.text) {
-        if (ttft_ms === 0) ttft_ms = Date.now() - start
-        fullText += event.delta.text
-        if (onChunk) onChunk(event.delta.text)
-      } else if (event.type === 'message_delta' && event.usage?.output_tokens != null) {
-        // Final cumulative output-token count.
-        usageCompletionTokens = event.usage.output_tokens
-      }
+      applyEvent(JSON.parse(data), s, start, onChunk)
     } catch {
       // skip malformed lines
     }
@@ -77,17 +93,17 @@ export async function anthropicStream(
   const duration_ms = Date.now() - start
 
   // Prefer provider usage; fall back to char/4 estimate.
-  const haveUsage = usagePromptTokens > 0 || usageCompletionTokens > 0
-  const prompt_tokens = usagePromptTokens > 0
-    ? usagePromptTokens
+  const haveUsage = s.promptTokens > 0 || s.completionTokens > 0
+  const prompt_tokens = s.promptTokens > 0
+    ? s.promptTokens
     : Math.ceil((prompt.length + SYSTEM.length) / 4)
   // Fallback completion estimate uses generated text length (char/4), matching
   // the prompt-token estimate — not the raw SSE delta-event count.
-  const completion_tokens = usageCompletionTokens > 0 ? usageCompletionTokens : Math.ceil(fullText.length / 4)
+  const completion_tokens = s.completionTokens > 0 ? s.completionTokens : Math.ceil(s.text.length / 4)
 
   return {
-    text: fullText,
-    ttft_ms,
+    text: s.text,
+    ttft_ms: s.ttft_ms,
     duration_ms,
     prompt_tokens,
     completion_tokens,

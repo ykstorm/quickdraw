@@ -32,10 +32,10 @@ slightly above the ceiling when a call cost more than its estimate.
 ## How it works
 
 1. The CLI validates the flags, reads the prompt file if one is given, and refuses to start if any model has no pricing on file (unless `--allow-unpriced`).
-2. `runBenchmark` loops over the providers and runs. Before each call it reserves a pessimistic cost estimate against the ceiling; a run that would cross it is skipped and marked as such.
+2. `runBenchmark` loops over the providers and runs. Before each call it reserves a pessimistic cost estimate against the ceiling. If the estimate would cross the ceiling, the call is not made and the rest of that provider's runs are skipped. The skipped run is recorded with the error `skipped: cost ceiling reached`; a provider with no completed run is reported with that error and counts as failed for the exit code. The next provider still runs if its own estimate fits the budget that is left.
 3. Each provider streams a response; the first token's arrival time gives TTFT, the rest of the stream gives tokens per second and total duration.
 4. Every call is written to `api_calls.jsonl` as it happens (the file is started fresh each run), and the summary numbers are computed from the same per-call records.
-5. Results print as a table and, with `--json`, are written with secrets redacted.
+5. Results print as a table and, with `--json`, are also written to a file. API keys and bearer tokens are redacted from everything the CLI prints (progress lines, the table, error messages) and from everything it writes (the ledger and the `--json` file).
 
 Metrics captured per run:
 
@@ -65,10 +65,16 @@ DRY_RUN=true quickdraw bench --providers openai --runs 1
 
 # Regression-diff two saved runs (exit code 2 if a regression is detected)
 quickdraw diff baseline.json candidate.json
+
+# Print the installed version
+quickdraw --version
 ```
 
 The benchmark table reports avg / p50 / p95 / p99 for both TTFT and TPS, plus
-per-provider cost. If a required API key is missing, the CLI exits with a clean
+per-provider cost. The cost is the settled cost of every call, including a call
+that answered with no output, which counts as a failed run but was still billed.
+A call that fails with an error is counted at $0, because its real cost is not
+reported. If a required API key is missing, the CLI exits with a clean
 `Set OPENAI_API_KEY` / `Set ANTHROPIC_API_KEY` message and makes no network call.
 
 ### Try locally
@@ -99,6 +105,10 @@ const results = await runBenchmark({
 // results: BenchmarkResult[] with per-provider stream metrics
 ```
 
+Only the CLI turns `DRY_RUN` into a printed plan. In library mode, `runBenchmark`
+and the exported adapters (`openaiStream`, `anthropicStream`) throw under
+`DRY_RUN` instead of calling a provider, so no request is ever sent.
+
 ---
 
 ## Stack
@@ -116,9 +126,10 @@ const results = await runBenchmark({
 
 ## A sample measurement
 
-Measured once on 2026-07-05 from a GitHub-hosted runner (region not recorded),
-3 calls to `claude-haiku-4-5` with the committed
-[`bench/standard-prompt.md`](bench/standard-prompt.md) (a ~230-token completion):
+Measured once on 2026-07-05, on the code released as 1.0.4, from a GitHub-hosted
+runner (region not recorded), 3 calls to `claude-haiku-4-5` with the committed
+[`bench/standard-prompt.md`](bench/standard-prompt.md) (a ~230-token completion).
+It has not been measured again on the code that came after 1.0.4:
 
 | Metric | avg | p50 | p95 / p99 |
 |---|---|---|---|
@@ -142,7 +153,7 @@ estimate.
 ## Supported
 
 - Percentile reporting: TTFT and TPS as avg / p50 / p95 / p99 across runs.
-- Regression diffing: `quickdraw diff <run1.json> <run2.json>` compares two saved runs and flags TTFT/TPS/cost regressions and success/model changes (exit code 2 when a regression is found).
+- Regression diffing: `quickdraw diff <run1.json> <run2.json>` compares the averages of two saved runs. A TTFT, TPS or cost change past the threshold, or a provider going from success to failure, is listed under REGRESSIONS and makes the exit code 2. A model change is listed under Changed and does not change the exit code on its own: running a different model is a deliberate change, not a regression, and the metric checks still apply to the new numbers.
 - Token counts from each provider's `usage` field when available, falling back to a char/4 estimate.
 - API-key preflight: a missing key produces a clean `Set <ENV_VAR>` message and exit 1, not a `Bearer undefined` 401 dump.
 

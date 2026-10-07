@@ -70,11 +70,27 @@ describe('runBenchmark', () => {
     expect(openaiStream).toHaveBeenCalledWith('CUSTOM PROMPT', undefined, 'gpt-4o-mini')
   })
 
-  it('reports a provider after the ceiling hit as skipped, not failed', async () => {
+  it('still runs a later provider whose estimate fits after the ceiling stopped an earlier one', async () => {
+    // Haiku reserves about $0.00256 a call, so a $0.0027 cap allows one call and
+    // refuses the second. A gpt-4o-mini reservation is about $0.0003, which fits
+    // the remaining budget, so openai runs all three times.
     anthropicStream.mockResolvedValue(streamResult({ prompt_tokens: 10, completion_tokens: 50 }))
     openaiStream.mockResolvedValue(streamResult())
     const results = await runBenchmark({ providers: ['anthropic', 'openai'], runs: 3, guardrails: false, costCap: 0.0027, prompt: 'hi' })
-    expect(openaiStream).toHaveBeenCalledTimes(0)
+    expect(anthropicStream).toHaveBeenCalledTimes(1)
+    expect(results[0].perRun?.map((r) => r.error ?? 'ok')).toEqual(['ok', 'skipped: cost ceiling reached'])
+    expect(openaiStream).toHaveBeenCalledTimes(3)
+    expect(results[1].success).toBe(true)
+    expect(results[1].runs).toBe(3)
+  })
+
+  it('reports a provider whose estimate does not fit as skipped, not failed', async () => {
+    // The openai runs fit a $0.002 cap; one Haiku reservation (about $0.00256) does not.
+    anthropicStream.mockResolvedValue(streamResult())
+    openaiStream.mockResolvedValue(streamResult())
+    const results = await runBenchmark({ providers: ['openai', 'anthropic'], runs: 3, guardrails: false, costCap: 0.002, prompt: 'hi' })
+    expect(openaiStream).toHaveBeenCalledTimes(3)
+    expect(anthropicStream).toHaveBeenCalledTimes(0)
     expect(results[1].success).toBe(false)
     expect(results[1].error).toBe('skipped: cost ceiling reached')
   })
@@ -84,6 +100,27 @@ describe('runBenchmark', () => {
     const results = await runBenchmark({ providers: ['openai'], runs: 1, guardrails: false })
     expect(results[0].success).toBe(false)
     expect(results[0].perRun?.[0].error).toBe('no content received')
+  })
+
+  it('writes a call with no output to the ledger as a failed run with its real cost', async () => {
+    const file = path.join(os.tmpdir(), `quickdraw-empty-${Date.now()}.jsonl`)
+    const logger = new APICallLogger({ file, truncate: true })
+    try {
+      // gpt-4o-mini: 1000 prompt tokens cost $0.00015, 50 output tokens $0.00003.
+      openaiStream
+        .mockResolvedValueOnce(streamResult({ prompt_tokens: 1000, completion_tokens: 50 }))
+        .mockResolvedValueOnce(streamResult({ text: '', prompt_tokens: 1000, completion_tokens: 0, ttft_ms: 0 }))
+      const results = await runBenchmark({ providers: ['openai'], runs: 2 }, { logger, onProgress: () => {} })
+
+      expect(fs.existsSync(file)).toBe(true)
+      const lines = fs.readFileSync(file, 'utf-8').trim().split('\n').map((l) => JSON.parse(l))
+      expect(lines).toHaveLength(2)
+      expect(lines[1]).toMatchObject({ success: false, error: 'no content received', completion_tokens: 0, cost_usd: 0.00015 })
+      // The provider total counts the empty call too, because it was paid for.
+      expect(results[0].cost_usd).toBeCloseTo(0.00033, 6)
+    } finally {
+      if (fs.existsSync(file)) fs.unlinkSync(file)
+    }
   })
 
   it('refuses to run under DRY_RUN instead of calling a provider without a key', async () => {
@@ -158,6 +195,14 @@ describe('runBenchmark', () => {
     const results = await runBenchmark({ providers: ['openai'], runs: 2, guardrails: false })
     expect(results[0].success).toBe(false)
     expect(results[0].error).toMatch(/network boom/)
+  })
+
+  it('redacts secrets from progress messages', async () => {
+    openaiStream.mockRejectedValue(new Error('network boom for sk-proj-LEAK_1234'))
+    const seen: string[] = []
+    await runBenchmark({ providers: ['openai'], runs: 1 }, { onProgress: (m) => seen.push(m) })
+    expect(seen.join(' ')).not.toMatch(/LEAK_1234/)
+    expect(seen.join(' ')).toMatch(/fail openai run 1\/1: network boom for \[REDACTED\]/)
   })
 
   it('passes config.onChunk through to the provider stream', async () => {

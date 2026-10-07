@@ -3,8 +3,12 @@
  * string before it is thrown, printed, or written to disk.
  *
  * API keys must never reach stdout, stderr, the JSONL ledger, or a results file.
- * A provider's raw error body can echo the request (including the key), so every
- * surface runs its output through `redactSecrets` first.
+ * A provider's raw error body can echo the request (including the key), so these
+ * run through `redactSecrets`: HTTP error messages (`sanitizeHttpError`), every
+ * ledger line (logger.ts), the --json file and everything the CLI prints
+ * (cli.ts), runBenchmark's progress messages (benchmark.ts), the error column of
+ * the results table (report.ts) and the fatal error line (bin/cli.ts). Results
+ * returned to a library caller are not redacted.
  */
 
 /** Patterns for provider API keys and bearer tokens. */

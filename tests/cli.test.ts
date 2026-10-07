@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { run } from '../src/cli'
 import type { BenchmarkResult } from '../src/types'
+import { version } from '../package.json'
 
 function harness() {
   const out: string[] = []
@@ -37,6 +38,17 @@ describe('cli: --help', () => {
     expect(h.out.join('\n')).toMatch(/quickdraw/)
     expect(h.out.join('\n')).toMatch(/bench/)
     expect(h.out.join('\n')).toMatch(/diff/)
+  })
+})
+
+describe('cli: --version', () => {
+  it('prints the package.json version and exits 0', async () => {
+    for (const flag of ['--version', '-V']) {
+      const h = harness()
+      const code = await run([flag], h.deps)
+      expect(code).toBe(0)
+      expect(h.out).toEqual([version])
+    }
   })
 })
 
@@ -175,6 +187,37 @@ describe('cli: bench live (mocked runBenchmark)', () => {
     expect(written['out.json']).toMatch(/\[REDACTED\]/)
   })
 
+  it('redacts secrets from progress lines and the table it prints', async () => {
+    const h = harness()
+    const bench = vi.fn().mockImplementation(async (_cfg, deps: { onProgress: (m: string) => void }) => {
+      deps.onProgress('  fail openai run 1/1: auth failed for sk-live-FAKE_KEY_9999')
+      return [sampleResult({ success: false, error: 'auth failed for sk-live-FAKE_KEY_9999' })]
+    })
+    const code = await run(['bench', '--providers', 'openai', '--runs', '1'], {
+      ...h.deps,
+      env: { OPENAI_API_KEY: 'sk-test' },
+      runBenchmark: bench,
+    })
+    expect(code).toBe(1)
+    const text = h.out.join('\n')
+    expect(text).not.toMatch(/FAKE_KEY_9999/)
+    expect(text).toMatch(/fail openai run 1\/1: auth failed for \[REDACTED\]/)
+    expect(text).toMatch(/ERROR: auth failed for \[REDACTED\]/)
+  })
+
+  it('redacts secrets from the error line it prints', async () => {
+    const h = harness()
+    const bench = vi.fn().mockRejectedValue(new Error('upstream echoed Authorization: Bearer abc.def-123'))
+    const code = await run(['bench', '--providers', 'openai', '--runs', '1'], {
+      ...h.deps,
+      env: { OPENAI_API_KEY: 'sk-test' },
+      runBenchmark: bench,
+    })
+    expect(code).toBe(1)
+    expect(h.err.join('\n')).not.toMatch(/abc\.def-123/)
+    expect(h.err.join('\n')).toMatch(/Error: upstream echoed Authorization: \[REDACTED\]/)
+  })
+
   it('rejects a model with no pricing before any network call', async () => {
     const h = harness()
     const bench = vi.fn()
@@ -238,6 +281,19 @@ describe('cli: diff', () => {
     expect(h.out.join('\n')).toMatch(/regressions detected/)
   })
 
+  it('exits 0 on a model change alone and does not print it as a regression', async () => {
+    const h = harness()
+    const files: Record<string, string> = { 'a.json': run1, 'b.json': JSON.stringify([sampleResult({ model: 'gpt-4o' })]) }
+    const code = await run(['diff', 'a.json', 'b.json'], {
+      ...h.deps,
+      readFile: (p: string) => files[p],
+    })
+    expect(code).toBe(0)
+    const text = h.out.join('\n')
+    expect(text).toMatch(/Changed: model gpt-4o-mini -> gpt-4o/)
+    expect(text).not.toMatch(/REGRESSIONS/)
+  })
+
   it('errors (exit 1) when an argument is missing', async () => {
     const h = harness()
     const code = await run(['diff', 'only-one.json'], {
@@ -245,6 +301,19 @@ describe('cli: diff', () => {
       readFile: () => '[]',
     })
     expect(code).toBe(1)
+  })
+
+  it('fails with a clean message, not a TypeError, on an entry with empty metrics', async () => {
+    const h = harness()
+    const empty = JSON.stringify([{ provider: 'openai', model: 'gpt-4o-mini', metrics: {}, cost_usd: 0.001, success: true }])
+    const files: Record<string, string> = { 'a.json': run1, 'b.json': empty }
+    const code = await run(['diff', 'a.json', 'b.json'], {
+      ...h.deps,
+      readFile: (p: string) => files[p],
+    })
+    expect(code).toBe(1)
+    expect(h.err.join('\n')).toMatch(/without numeric "ttft_ms" and "tps"/)
+    expect(h.err.join('\n')).not.toMatch(/Cannot read properties/)
   })
 
   it('rejects a non-numeric --threshold', async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { assertApiKey, missingKeys, MissingApiKeyError, REQUIRED_KEY } from '../src/preflight'
+import { assertApiKey, assertLiveCall, missingKeys, DryRunError, MissingApiKeyError, REQUIRED_KEY } from '../src/preflight'
 
 describe('preflight', () => {
   it('maps providers to env vars', () => {
@@ -27,6 +27,12 @@ describe('preflight', () => {
 
   it('skips the check entirely in DRY_RUN', () => {
     expect(() => assertApiKey('openai', { DRY_RUN: 'true' })).not.toThrow()
+  })
+
+  it('assertLiveCall refuses DRY_RUN before it looks at the key', () => {
+    expect(() => assertLiveCall('openai', { DRY_RUN: 'true', OPENAI_API_KEY: 'sk-test' })).toThrow(DryRunError)
+    expect(() => assertLiveCall('openai', {})).toThrow(MissingApiKeyError)
+    expect(() => assertLiveCall('openai', { OPENAI_API_KEY: 'sk-test' })).not.toThrow()
   })
 
   it('missingKeys lists every absent var', () => {

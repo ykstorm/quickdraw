@@ -14,14 +14,20 @@ export interface ProviderDiff {
   ttft?: MetricDelta
   tps?: MetricDelta
   cost?: MetricDelta
-  /** A flag regression: e.g. went from success -> failure, or only-in-one-run. */
+  /** Regressions: a metric past the threshold, or success -> failure. Each sets `regressed`. */
   regressions: string[]
+  /**
+   * Differences that are not regressions, such as a model change. A run on a
+   * different model is a deliberate change, so it is listed but does not set
+   * `regressed`; the metric checks still apply to the new numbers.
+   */
+  changes: string[]
   onlyIn?: 'run1' | 'run2'
 }
 
 export interface DiffResult {
   providers: ProviderDiff[]
-  /** True if any TTFT/cost worsened materially or a success regressed. */
+  /** True if TTFT, TPS or cost moved past the threshold, or a success became a failure. */
   regressed: boolean
 }
 
@@ -34,6 +40,48 @@ function delta(before: number, after: number): MetricDelta {
     delta: round(d, 4),
     pct: Number.isFinite(pct) ? round(pct, 1) : pct,
   }
+}
+
+const isNumber = (v: unknown): v is number => typeof v === 'number'
+
+/** `metrics.ttft_ms` and `metrics.tps` are the fallbacks diffRuns reads, so both must be numbers. */
+function checkMetrics(metrics: unknown, i: number): void {
+  if (typeof metrics !== 'object' || metrics === null) {
+    throw new Error(`Run file entry ${i} is missing a "metrics" object.`)
+  }
+  const m = metrics as Record<string, unknown>
+  if (!isNumber(m.ttft_ms) || !isNumber(m.tps)) {
+    throw new Error(`Run file entry ${i} has a "metrics" object without numeric "ttft_ms" and "tps".`)
+  }
+}
+
+/** An optional `ttft` / `tps` block is read through its `avg`, which must be a number when set. */
+function checkPercentiles(e: Record<string, unknown>, i: number): void {
+  for (const key of ['ttft', 'tps']) {
+    const avg = (e[key] as { avg?: unknown } | null | undefined)?.avg
+    if (avg != null && !isNumber(avg)) {
+      throw new Error(`Run file entry ${i} has a non-numeric "${key}.avg".`)
+    }
+  }
+}
+
+/**
+ * Shape-check every field diffRuns reads, so a malformed file fails here with a
+ * clean Error rather than with a TypeError once the numbers are compared.
+ */
+function checkEntry(entry: unknown, i: number): void {
+  const e = entry as Record<string, unknown>
+  if (!e || typeof e !== 'object') {
+    throw new Error(`Run file entry ${i} is not an object.`)
+  }
+  if (typeof e.provider !== 'string' || typeof e.model !== 'string') {
+    throw new Error(`Run file entry ${i} is missing string "provider"/"model" fields.`)
+  }
+  checkMetrics(e.metrics, i)
+  if (!isNumber(e.cost_usd)) {
+    throw new Error(`Run file entry ${i} is missing a numeric "cost_usd".`)
+  }
+  checkPercentiles(e, i)
 }
 
 /**
@@ -51,24 +99,25 @@ export function parseRunFile(raw: string): BenchmarkResult[] {
   if (!Array.isArray(arr)) {
     throw new Error('Run file must be a JSON array of results (or { results: [...] }).')
   }
-  // Shape-check each entry so a malformed file fails with a clean Error rather
-  // than a downstream TypeError when fields are read.
-  arr.forEach((entry, i) => {
-    const e = entry as Record<string, unknown>
-    if (!e || typeof e !== 'object') {
-      throw new Error(`Run file entry ${i} is not an object.`)
-    }
-    if (typeof e.provider !== 'string' || typeof e.model !== 'string') {
-      throw new Error(`Run file entry ${i} is missing string "provider"/"model" fields.`)
-    }
-    if (typeof e.metrics !== 'object' || e.metrics === null) {
-      throw new Error(`Run file entry ${i} is missing a "metrics" object.`)
-    }
-    if (typeof e.cost_usd !== 'number') {
-      throw new Error(`Run file entry ${i} is missing a numeric "cost_usd".`)
-    }
-  })
+  arr.forEach(checkEntry)
   return arr as BenchmarkResult[]
+}
+
+const METRIC_FIELD = { ttft: 'ttft_ms', tps: 'tps' } as const
+
+/** The percentile average when the result has one, else the plain average in `metrics`. */
+function avgOf(r: BenchmarkResult, key: 'ttft' | 'tps'): number {
+  return r[key]?.avg ?? r.metrics[METRIC_FIELD[key]]
+}
+
+/** Metric regressions past `threshold` percent: TTFT and cost going up, TPS going down. */
+function metricRegressions(ttft: MetricDelta, tps: MetricDelta, cost: MetricDelta, threshold: number): string[] {
+  const found: string[] = []
+  // pct is Infinity when the baseline was 0, which is a regression too.
+  if (ttft.pct > threshold) found.push(`TTFT up ${ttft.pct}%`)
+  if (Number.isFinite(tps.pct) && tps.pct < -threshold) found.push(`TPS down ${Math.abs(tps.pct)}%`)
+  if (cost.pct > threshold) found.push(`cost up ${cost.pct}%`)
+  return found
 }
 
 /**
@@ -81,36 +130,18 @@ export function compareProvider(
   r2: BenchmarkResult,
   threshold: number
 ): { diff: ProviderDiff; regressed: boolean } {
-  const regressions: string[] = []
-  let regressed = false
+  const changes: string[] = r1.model !== r2.model ? [`model ${r1.model} -> ${r2.model}`] : []
+  const regressions: string[] = r1.success && !r2.success ? ['success -> failure'] : []
 
-  if (r1.model !== r2.model) {
-    regressions.push(`model changed: ${r1.model} -> ${r2.model}`)
-  }
-  if (r1.success && !r2.success) {
-    regressions.push('success -> failure')
-    regressed = true
-  }
-
-  const ttft = delta(r1.ttft?.avg ?? r1.metrics.ttft_ms, r2.ttft?.avg ?? r2.metrics.ttft_ms)
-  const tps = delta(r1.tps?.avg ?? r1.metrics.tps, r2.tps?.avg ?? r2.metrics.tps)
+  const ttft = delta(avgOf(r1, 'ttft'), avgOf(r2, 'ttft'))
+  const tps = delta(avgOf(r1, 'tps'), avgOf(r2, 'tps'))
   const cost = delta(r1.cost_usd, r2.cost_usd)
+  regressions.push(...metricRegressions(ttft, tps, cost, threshold))
 
-  // pct is Infinity when the baseline was 0, which is a regression too.
-  if (ttft.pct > threshold) {
-    regressions.push(`TTFT up ${ttft.pct}%`)
-    regressed = true
+  return {
+    diff: { provider: r2.provider, model: r2.model, ttft, tps, cost, regressions, changes },
+    regressed: regressions.length > 0,
   }
-  if (Number.isFinite(tps.pct) && tps.pct < -threshold) {
-    regressions.push(`TPS down ${Math.abs(tps.pct)}%`)
-    regressed = true
-  }
-  if (cost.pct > threshold) {
-    regressions.push(`cost up ${cost.pct}%`)
-    regressed = true
-  }
-
-  return { diff: { provider: r2.provider, model: r2.model, ttft, tps, cost, regressions }, regressed }
 }
 
 /**
@@ -140,11 +171,11 @@ export function diffRuns(
     const r2 = b.get(name)
 
     if (r1 && !r2) {
-      providers.push({ provider: name, model: r1.model, regressions: [], onlyIn: 'run1' })
+      providers.push({ provider: name, model: r1.model, regressions: [], changes: [], onlyIn: 'run1' })
       continue
     }
     if (!r1 && r2) {
-      providers.push({ provider: name, model: r2.model, regressions: [], onlyIn: 'run2' })
+      providers.push({ provider: name, model: r2.model, regressions: [], changes: [], onlyIn: 'run2' })
       continue
     }
     if (!r1 || !r2) continue
@@ -173,6 +204,7 @@ export function formatDiff(d: DiffResult): string {
     if (p.ttft) lines.push(`  TTFT: ${p.ttft.before} -> ${p.ttft.after} ms  (${sign(p.ttft.delta)} ms, ${sign(p.ttft.pct)}%)`)
     if (p.tps) lines.push(`  TPS:  ${p.tps.before} -> ${p.tps.after}  (${sign(p.tps.delta)}, ${sign(p.tps.pct)}%)`)
     if (p.cost) lines.push(`  cost: $${p.cost.before} -> $${p.cost.after}  (${sign(p.cost.delta)}, ${sign(p.cost.pct)}%)`)
+    if (p.changes.length > 0) lines.push(`  Changed: ${p.changes.join('; ')}`)
     if (p.regressions.length > 0) {
       lines.push(`  REGRESSIONS: ${p.regressions.join('; ')}`)
     } else {

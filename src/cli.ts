@@ -9,6 +9,8 @@ import { redactSecrets } from './providers/http-error'
 import { missingKeys, isTruthy } from './preflight'
 import { formatBenchTable } from './report'
 import { diffRuns, formatDiff, parseRunFile } from './diff'
+// Bundled at build time, so the printed version is the one in package.json.
+import { version } from '../package.json'
 
 const VALID_PROVIDERS: ProviderName[] = ['openai', 'anthropic']
 /** Prompt files larger than this are rejected unless --max-prompt-bytes raises it. */
@@ -141,43 +143,47 @@ function diffAction(run1Path: string, run2Path: string, opts: Record<string, str
   return d.regressed ? 2 : 0
 }
 
-/**
- * Run the CLI. Returns the intended process exit code (0 success, non-zero on
- * error / regression) instead of calling process.exit, so it is fully testable.
- */
-export async function run(argv: string[], deps: CliDeps = {}): Promise<number> {
-  const ctx: Ctx = {
-    out: deps.out ?? ((m: string) => console.log(m)),
-    err: deps.err ?? ((m: string) => console.error(m)),
+const readUtf8 = (p: string): string => fs.readFileSync(p, 'utf-8')
+
+function writeCreatingDir(p: string, d: string): void {
+  const dir = path.dirname(p)
+  if (dir && dir !== '.' && !fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(p, d, 'utf-8')
+}
+
+function statPath(p: string): { isFile: boolean; size: number } {
+  const s = fs.statSync(p)
+  return { isFile: s.isFile(), size: s.size }
+}
+
+/** Fill in the real console, file and benchmark functions for any a caller did not inject. */
+function makeCtx(deps: CliDeps): Ctx {
+  const out = deps.out ?? ((m: string) => console.log(m))
+  const err = deps.err ?? ((m: string) => console.error(m))
+  return {
+    // Everything the CLI prints is redacted, like the ledger and the --json file.
+    out: (m: string) => out(redactSecrets(m)),
+    err: (m: string) => err(redactSecrets(m)),
     env: deps.env ?? process.env,
-    readFile: deps.readFile ?? ((p: string) => fs.readFileSync(p, 'utf-8')),
-    writeFile:
-      deps.writeFile ??
-      ((p: string, d: string) => {
-        const dir = path.dirname(p)
-        if (dir && dir !== '.' && !fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-        fs.writeFileSync(p, d, 'utf-8')
-      }),
-    statFile:
-      deps.statFile ??
-      ((p: string) => {
-        const s = fs.statSync(p)
-        return { isFile: s.isFile(), size: s.size }
-      }),
+    readFile: deps.readFile ?? readUtf8,
+    writeFile: deps.writeFile ?? writeCreatingDir,
+    statFile: deps.statFile ?? statPath,
     bench: deps.runBenchmark ?? runBenchmark,
   }
+}
 
+/** The commander program for both subcommands. Each action hands its exit code to `setExit`. */
+function buildProgram(ctx: Ctx, setExit: (code: number) => void): Command {
   const program = new Command()
   program
     .name('quickdraw')
     .description('Benchmark LLM streaming: TTFT, TPS, p50/p95/p99, and cost, with a hard cost cap.')
+    .version(version)
     .exitOverride() // throw instead of calling process.exit, so we control codes
     .configureOutput({
       writeOut: (s) => ctx.out(s.replace(/\n$/, '')),
       writeErr: (s) => ctx.err(s.replace(/\n$/, '')),
     })
-
-  let exitCode = 0
 
   program
     .command('bench')
@@ -191,7 +197,7 @@ export async function run(argv: string[], deps: CliDeps = {}): Promise<number> {
     .option('--allow-unpriced', 'Run models with no pricing on file (cost reported as $0, not capped)')
     .option('--json <path>', 'Write full results JSON to this path')
     .action(async (opts) => {
-      exitCode = await benchAction(opts, ctx)
+      setExit(await benchAction(opts, ctx))
     })
 
   program
@@ -201,23 +207,42 @@ export async function run(argv: string[], deps: CliDeps = {}): Promise<number> {
     .argument('<run2>', 'Second (candidate) run JSON file')
     .option('-t, --threshold <pct>', 'Regression threshold percent', '10')
     .action((run1Path, run2Path, opts) => {
-      exitCode = diffAction(run1Path, run2Path, opts, ctx)
+      setExit(diffAction(run1Path, run2Path, opts, ctx))
     })
+
+  return program
+}
+
+/** commander reports --help and --version as errors; they are not real errors. */
+const CLEAN_EXITS = new Set(['commander.helpDisplayed', 'commander.help', 'commander.version'])
+
+/** The exit code for an error thrown while parsing or running a command. */
+function exitCodeFor(e: unknown, ctx: Ctx): number {
+  if (e instanceof CommanderError) {
+    if (CLEAN_EXITS.has(e.code)) return 0
+    // missingArgument / unknownCommand / missingMandatoryOptionValue: commander
+    // has already printed the message.
+    return 1
+  }
+  ctx.err(`Error: ${e instanceof Error ? e.message : String(e)}`)
+  return 1
+}
+
+/**
+ * Run the CLI. Returns the intended process exit code (0 success, non-zero on
+ * error / regression) instead of calling process.exit, so it is fully testable.
+ */
+export async function run(argv: string[], deps: CliDeps = {}): Promise<number> {
+  const ctx = makeCtx(deps)
+  let exitCode = 0
+  const program = buildProgram(ctx, (code) => {
+    exitCode = code
+  })
 
   try {
     await program.parseAsync(argv, { from: 'user' })
   } catch (e) {
-    if (e instanceof CommanderError) {
-      // --help / --version are not real errors.
-      if (e.code === 'commander.helpDisplayed' || e.code === 'commander.help' || e.code === 'commander.version') {
-        return 0
-      }
-      // missingArgument / unknownCommand / missingMandatoryOptionValue: commander
-      // has already printed the message.
-      return 1
-    }
-    ctx.err(`Error: ${e instanceof Error ? e.message : String(e)}`)
-    return 1
+    return exitCodeFor(e, ctx)
   }
 
   return exitCode

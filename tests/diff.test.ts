@@ -39,6 +39,14 @@ describe('parseRunFile', () => {
     expect(() => parseRunFile(JSON.stringify([{ foo: 1 }]))).toThrow(/entry 0 is missing string/)
     expect(() => parseRunFile(JSON.stringify(['notanobject']))).toThrow(/entry 0/)
   })
+  it('rejects an empty metrics object instead of passing it on to diffRuns', () => {
+    const entry = { provider: 'openai', model: 'gpt-4o-mini', metrics: {}, cost_usd: 0.001 }
+    expect(() => parseRunFile(JSON.stringify([entry]))).toThrow(
+      /entry 0 has a "metrics" object without numeric "ttft_ms" and "tps"/
+    )
+    const badAvg = { ...entry, metrics: { ttft_ms: 100, tps: 50 }, ttft: { avg: 'fast' } }
+    expect(() => parseRunFile(JSON.stringify([badAvg]))).toThrow(/entry 0 has a non-numeric "ttft.avg"/)
+  })
 })
 
 describe('diffRuns', () => {
@@ -81,11 +89,24 @@ describe('diffRuns', () => {
     expect(d.providers[0].regressions.join(' ')).toMatch(/success -> failure/)
   })
 
-  it('flags a model change', () => {
+  it('lists a model change under Changed, not under REGRESSIONS', () => {
+    const d = diffRuns([mk({ model: 'gpt-4o-mini' })], [mk({ model: 'gpt-4o' })])
+    expect(d.regressed).toBe(false)
+    expect(d.providers[0].regressions).toEqual([])
+    expect(d.providers[0].changes).toEqual(['model gpt-4o-mini -> gpt-4o'])
+    const text = formatDiff(d)
+    expect(text).toMatch(/Changed: model gpt-4o-mini -> gpt-4o/)
+    expect(text).not.toMatch(/REGRESSIONS/)
+    expect(text).toMatch(/RESULT: no regressions/)
+  })
+
+  it('still flags a slower run on a changed model as a regression', () => {
     const before = [mk({ model: 'gpt-4o-mini' })]
-    const after = [mk({ model: 'gpt-4o' })]
-    const d = diffRuns(before, after)
-    expect(d.providers[0].regressions.join(' ')).toMatch(/model changed/)
+    const after = [mk({ model: 'gpt-4o', ttft: { avg: 300, p50: 300, p95: 300, p99: 300 } })]
+    const d = diffRuns(before, after, 10)
+    expect(d.regressed).toBe(true)
+    expect(d.providers[0].changes).toEqual(['model gpt-4o-mini -> gpt-4o'])
+    expect(d.providers[0].regressions.join(' ')).toMatch(/TTFT up 200%/)
   })
 
   it('notes providers present only in one run', () => {

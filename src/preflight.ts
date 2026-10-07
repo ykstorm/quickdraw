@@ -21,10 +21,19 @@ export class MissingApiKeyError extends Error {
   }
 }
 
+/** Thrown when a provider call is attempted while DRY_RUN is set. */
+export class DryRunError extends Error {
+  constructor(public readonly provider: string) {
+    super(`DRY_RUN is set: refusing to call ${provider}. Unset DRY_RUN to make real calls.`)
+    this.name = 'DryRunError'
+  }
+}
+
 /**
  * Throw a clean MissingApiKeyError if the env var for `provider` is unset/empty.
  * Reads from `env` (defaults to process.env) so it is testable. Skipped in
- * DRY_RUN since no network call is made.
+ * DRY_RUN, where the CLI only prints the plan; the adapters call
+ * `assertLiveCall`, which refuses DRY_RUN before it gets here.
  */
 export function assertApiKey(
   provider: ProviderName,
@@ -36,6 +45,17 @@ export function assertApiKey(
   if (!value || value.trim() === '') {
     throw new MissingApiKeyError(provider, envVar)
   }
+}
+
+/**
+ * The gate each provider adapter runs before `fetch`. Under DRY_RUN it throws
+ * DryRunError, so a direct adapter call never reaches the network; otherwise it
+ * throws MissingApiKeyError when the key is unset, so no request is sent with
+ * "Bearer undefined".
+ */
+export function assertLiveCall(provider: ProviderName, env: NodeJS.ProcessEnv = process.env): void {
+  if (isTruthy(env.DRY_RUN)) throw new DryRunError(provider)
+  assertApiKey(provider, env)
 }
 
 /**

@@ -2,6 +2,7 @@ import { BenchmarkConfig, BenchmarkResult, ProviderName, ProviderStreamResult, R
 import { CostTracker, CostCeilingError, MAX_OUTPUT_TOKENS } from './cost-tracker'
 import { APICallLogger } from './logger'
 import { isTruthy } from './preflight'
+import { redactSecrets } from './providers/http-error'
 import { computeMetrics } from './metrics'
 import { anthropicStream, DEFAULT_ANTHROPIC_MODEL } from './providers/anthropic'
 import { openaiStream, DEFAULT_OPENAI_MODEL } from './providers/openai'
@@ -41,6 +42,8 @@ function estimatePromptTokens(prompt: string): number {
 
 const emptyMetrics = (): StreamMetrics => ({ ttft_ms: 0, tps: 0, total_duration_ms: 0, token_count: 0 })
 
+const NO_CONTENT = 'no content received'
+
 interface RunContext {
   logger: APICallLogger
   costTracker: CostTracker
@@ -73,10 +76,9 @@ async function runOnce(
     // log that cost, never a fabricated $0.
     const cost = costTracker.priceOf(model, streamResult.prompt_tokens, streamResult.completion_tokens)
     costTracker.settle(reserved, cost)
-    if (streamResult.completion_tokens === 0) {
-      // A 200 with no content would otherwise count as a run with a 0 ms TTFT.
-      return { provider, model, metrics: emptyMetrics(), cost_usd: cost, success: false, error: 'no content received' }
-    }
+    // A 200 with no content would otherwise count as a run with a 0 ms TTFT, so
+    // it is a failed run. It was still paid for, so it is logged like any other.
+    const empty = streamResult.completion_tokens === 0
 
     logger.log({
       timestamp: new Date().toISOString(),
@@ -89,8 +91,13 @@ async function runOnce(
       completion_tokens: streamResult.completion_tokens,
       token_source: streamResult.token_source,
       cost_usd: cost,
-      success: true,
+      success: !empty,
+      error: empty ? NO_CONTENT : undefined,
     })
+
+    if (empty) {
+      return { provider, model, metrics: emptyMetrics(), cost_usd: cost, success: false, error: NO_CONTENT }
+    }
 
     const metrics = computeMetrics(streamResult.ttft_ms, streamResult.duration_ms, streamResult.completion_tokens)
     return { provider, model, metrics, cost_usd: cost, success: true }
@@ -117,6 +124,9 @@ async function runOnce(
   }
 }
 
+/** Settled cost of every run, failed ones included (an empty answer is still billed). */
+const totalCost = (runs: RunResult[]): number => round(runs.reduce((s, r) => s + r.cost_usd, 0), 6)
+
 /** Fold a provider's per-run results into one aggregated BenchmarkResult. */
 function aggregate(provider: string, model: string, runs: RunResult[]): BenchmarkResult {
   const ok = runs.filter((r) => r.success)
@@ -125,7 +135,7 @@ function aggregate(provider: string, model: string, runs: RunResult[]): Benchmar
       provider,
       model,
       metrics: emptyMetrics(),
-      cost_usd: 0,
+      cost_usd: totalCost(runs),
       success: false,
       error: runs.find((r) => r.error)?.error ?? 'all runs failed',
       runs: 0,
@@ -146,7 +156,7 @@ function aggregate(provider: string, model: string, runs: RunResult[]): Benchmar
     provider,
     model,
     metrics: avgMetrics,
-    cost_usd: round(ok.reduce((s, r) => s + r.cost_usd, 0), 6),
+    cost_usd: totalCost(runs),
     success: true,
     runs: ok.length,
     perRun: runs,
@@ -159,27 +169,25 @@ export async function runBenchmark(config: BenchmarkConfig, deps: BenchmarkDeps 
   if (isTruthy(process.env.DRY_RUN)) {
     throw new Error('DRY_RUN is set: runBenchmark makes network calls. Unset it, or use the CLI, which prints the plan instead.')
   }
+  const progress = deps.onProgress ?? ((m: string) => console.log(m))
   const ctx: BenchContext = {
     config,
     costTracker: new CostTracker(config.costCap ?? 2.0, config.allowUnpriced ?? false),
     logger: deps.logger ?? new APICallLogger({ truncate: true }),
-    onProgress: deps.onProgress ?? ((m: string) => console.log(m)),
+    // A failed run's line carries the provider's error text, so redact it.
+    onProgress: (m: string) => progress(redactSecrets(m)),
   }
   const results: BenchmarkResult[] = []
-  let ceilingHit = false
 
   for (const provider of config.providers) {
     const model = resolveModel(provider, config.model)
-    // Once the ceiling is hit, the remaining providers are skipped, not failed.
-    const run: ProviderRun = ceilingHit ? { perRun: [skipped(provider, model)], ceilingHit } : await benchProvider(provider, model, ctx)
-    ceilingHit = run.ceilingHit
-    results.push(aggregate(provider, model, run.perRun))
+    // Every provider makes its own reservation, so one whose estimate fits the
+    // remaining budget still runs after an earlier provider hit the ceiling.
+    results.push(aggregate(provider, model, await benchProvider(provider, model, ctx)))
   }
 
   return results
 }
-
-type ProviderRun = { perRun: RunResult[]; ceilingHit: boolean }
 
 interface BenchContext {
   config: BenchmarkConfig
@@ -192,8 +200,11 @@ const skipped = (provider: string, model: string): RunResult => ({
   provider, model, metrics: emptyMetrics(), cost_usd: 0, success: false, error: 'skipped: cost ceiling reached',
 })
 
-/** All runs for one provider, stopping at the cost ceiling. */
-async function benchProvider(provider: ProviderName, model: string, ctx: BenchContext): Promise<ProviderRun> {
+/**
+ * All runs for one provider. Stops at the first reservation the ceiling refuses,
+ * which is recorded as a skipped run, or once settled spend reaches the ceiling.
+ */
+async function benchProvider(provider: ProviderName, model: string, ctx: BenchContext): Promise<RunResult[]> {
   const { config, costTracker, logger, onProgress } = ctx
   const perRun: RunResult[] = []
 
@@ -208,18 +219,18 @@ async function benchProvider(provider: ProviderName, model: string, ctx: BenchCo
       if (!(err instanceof CostCeilingError)) throw err
       onProgress(`  skipped: cost ceiling reached (${label})`)
       perRun.push(skipped(provider, model))
-      return { perRun, ceilingHit: true }
+      return perRun
     }
 
     perRun.push(result)
     onProgress(describeRun(label, result))
-    // Stop once settled spend has reached the ceiling.
+    // Stop this provider once settled spend has reached the ceiling.
     if (result.success && costTracker.spent >= costTracker.ceilingUsd) {
-      onProgress('Cost ceiling reached. Halting benchmark.')
-      return { perRun, ceilingHit: true }
+      onProgress(`Cost ceiling reached. No more runs for ${provider}.`)
+      return perRun
     }
   }
-  return { perRun, ceilingHit: false }
+  return perRun
 }
 
 function describeRun(label: string, result: RunResult): string {

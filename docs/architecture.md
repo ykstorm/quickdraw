@@ -32,7 +32,7 @@ bin/cli.ts              CLI entry point (thin wrapper over src/cli.ts)
 
 ## Cost ceiling
 
-`CostTracker.reserve()` runs **before** a call and charges a pessimistic
+`CostTracker.reserve()` runs before a call and charges a pessimistic
 estimate (prompt estimate + `MAX_OUTPUT_TOKENS`) against the budget, throwing
 `CostCeilingError` if it would breach the ceiling (so the call is never made).
 `settle()` then swaps that reservation for the call's real cost. Because the
@@ -41,14 +41,18 @@ cross the ceiling is never started. The reservation is an estimate (half a token
 per prompt character plus the maximum output), so settled spend can exceed the
 ceiling by the amount one call cost beyond its estimate; it cannot run away.
 
+A refused reservation stops that provider: the run is recorded as `skipped: cost
+ceiling reached` and its later runs are not attempted. The next provider makes
+its own reservation, so it still runs if its estimate fits what is left.
+
 ## Why JSON Lines
 
 The ledger (`api_calls.jsonl`) is one row per call, written as each call
 completes and started fresh for every run, so a crash leaves a readable partial
-file, `tail -f … | jq` works without setup, and every summary stat (TTFT/TPS
-percentiles, cost) can be recomputed from the raw rows. The CLI computes the
-summary from the same per-call records in memory; nothing in `src/` reads the
-file back.
+file, `tail -f api_calls.jsonl | jq` works without setup, and every summary stat
+(TTFT/TPS percentiles, cost) can be recomputed from the raw rows. The CLI
+computes the summary from the same per-call records in memory; nothing in `src/`
+reads the file back.
 
 ## Providers
 
