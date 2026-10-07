@@ -122,6 +122,8 @@ this file but never tagged or published; its notes are folded in here.
 - The SSE line reader is shared by both providers (#33).
 - Each test worker writes its own ledger file, so parallel test files no longer
   truncate the same `./api_calls.jsonl` (#40).
+- CI's publish job stops before `npm publish` when the pushed tag is not `v`
+  followed by the `package.json` version (#43).
 
 ### Docs
 
