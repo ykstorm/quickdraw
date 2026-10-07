@@ -68,7 +68,10 @@ quickdraw diff baseline.json candidate.json
 ```
 
 The benchmark table reports avg / p50 / p95 / p99 for both TTFT and TPS, plus
-per-provider cost. If a required API key is missing, the CLI exits with a clean
+per-provider cost. The cost is the settled cost of every call, including a call
+that answered with no output, which counts as a failed run but was still billed.
+A call that fails with an error is counted at $0, because its real cost is not
+reported. If a required API key is missing, the CLI exits with a clean
 `Set OPENAI_API_KEY` / `Set ANTHROPIC_API_KEY` message and makes no network call.
 
 ### Try locally

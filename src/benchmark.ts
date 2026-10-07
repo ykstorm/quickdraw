@@ -41,6 +41,8 @@ function estimatePromptTokens(prompt: string): number {
 
 const emptyMetrics = (): StreamMetrics => ({ ttft_ms: 0, tps: 0, total_duration_ms: 0, token_count: 0 })
 
+const NO_CONTENT = 'no content received'
+
 interface RunContext {
   logger: APICallLogger
   costTracker: CostTracker
@@ -73,10 +75,9 @@ async function runOnce(
     // log that cost, never a fabricated $0.
     const cost = costTracker.priceOf(model, streamResult.prompt_tokens, streamResult.completion_tokens)
     costTracker.settle(reserved, cost)
-    if (streamResult.completion_tokens === 0) {
-      // A 200 with no content would otherwise count as a run with a 0 ms TTFT.
-      return { provider, model, metrics: emptyMetrics(), cost_usd: cost, success: false, error: 'no content received' }
-    }
+    // A 200 with no content would otherwise count as a run with a 0 ms TTFT, so
+    // it is a failed run. It was still paid for, so it is logged like any other.
+    const empty = streamResult.completion_tokens === 0
 
     logger.log({
       timestamp: new Date().toISOString(),
@@ -89,8 +90,13 @@ async function runOnce(
       completion_tokens: streamResult.completion_tokens,
       token_source: streamResult.token_source,
       cost_usd: cost,
-      success: true,
+      success: !empty,
+      error: empty ? NO_CONTENT : undefined,
     })
+
+    if (empty) {
+      return { provider, model, metrics: emptyMetrics(), cost_usd: cost, success: false, error: NO_CONTENT }
+    }
 
     const metrics = computeMetrics(streamResult.ttft_ms, streamResult.duration_ms, streamResult.completion_tokens)
     return { provider, model, metrics, cost_usd: cost, success: true }
@@ -117,6 +123,9 @@ async function runOnce(
   }
 }
 
+/** Settled cost of every run, failed ones included (an empty answer is still billed). */
+const totalCost = (runs: RunResult[]): number => round(runs.reduce((s, r) => s + r.cost_usd, 0), 6)
+
 /** Fold a provider's per-run results into one aggregated BenchmarkResult. */
 function aggregate(provider: string, model: string, runs: RunResult[]): BenchmarkResult {
   const ok = runs.filter((r) => r.success)
@@ -125,7 +134,7 @@ function aggregate(provider: string, model: string, runs: RunResult[]): Benchmar
       provider,
       model,
       metrics: emptyMetrics(),
-      cost_usd: 0,
+      cost_usd: totalCost(runs),
       success: false,
       error: runs.find((r) => r.error)?.error ?? 'all runs failed',
       runs: 0,
@@ -146,7 +155,7 @@ function aggregate(provider: string, model: string, runs: RunResult[]): Benchmar
     provider,
     model,
     metrics: avgMetrics,
-    cost_usd: round(ok.reduce((s, r) => s + r.cost_usd, 0), 6),
+    cost_usd: totalCost(runs),
     success: true,
     runs: ok.length,
     perRun: runs,

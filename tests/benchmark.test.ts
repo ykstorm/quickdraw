@@ -86,6 +86,27 @@ describe('runBenchmark', () => {
     expect(results[0].perRun?.[0].error).toBe('no content received')
   })
 
+  it('writes a call with no output to the ledger as a failed run with its real cost', async () => {
+    const file = path.join(os.tmpdir(), `quickdraw-empty-${Date.now()}.jsonl`)
+    const logger = new APICallLogger({ file, truncate: true })
+    try {
+      // gpt-4o-mini: 1000 prompt tokens cost $0.00015, 50 output tokens $0.00003.
+      openaiStream
+        .mockResolvedValueOnce(streamResult({ prompt_tokens: 1000, completion_tokens: 50 }))
+        .mockResolvedValueOnce(streamResult({ text: '', prompt_tokens: 1000, completion_tokens: 0, ttft_ms: 0 }))
+      const results = await runBenchmark({ providers: ['openai'], runs: 2 }, { logger, onProgress: () => {} })
+
+      expect(fs.existsSync(file)).toBe(true)
+      const lines = fs.readFileSync(file, 'utf-8').trim().split('\n').map((l) => JSON.parse(l))
+      expect(lines).toHaveLength(2)
+      expect(lines[1]).toMatchObject({ success: false, error: 'no content received', completion_tokens: 0, cost_usd: 0.00015 })
+      // The provider total counts the empty call too, because it was paid for.
+      expect(results[0].cost_usd).toBeCloseTo(0.00033, 6)
+    } finally {
+      if (fs.existsSync(file)) fs.unlinkSync(file)
+    }
+  })
+
   it('refuses to run under DRY_RUN instead of calling a provider without a key', async () => {
     process.env.DRY_RUN = 'true'
     try {
