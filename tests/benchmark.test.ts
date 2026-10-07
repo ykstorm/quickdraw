@@ -102,6 +102,23 @@ describe('runBenchmark', () => {
     expect(results[0].perRun?.[0].error).toBe('no content received')
   })
 
+  it('keeps a run whose text arrived with no output count, and estimates the count', async () => {
+    const file = path.join(os.tmpdir(), `quickdraw-estimate-${Date.now()}.jsonl`)
+    const logger = new APICallLogger({ file, truncate: true })
+    try {
+      // "hello world" is 11 characters, estimated at ceil(11 / 2) = 6 output tokens.
+      openaiStream.mockResolvedValue(streamResult({ text: 'hello world', prompt_tokens: 10, completion_tokens: 0 }))
+      const results = await runBenchmark({ providers: ['openai'], runs: 1 }, { logger, onProgress: () => {} })
+
+      expect(results[0].success).toBe(true)
+      expect(results[0].perRun?.[0].metrics.token_count).toBe(6)
+      const [line] = fs.readFileSync(file, 'utf-8').trim().split('\n').map((l) => JSON.parse(l))
+      expect(line).toMatchObject({ success: true, completion_tokens: 6, token_source: 'estimate' })
+    } finally {
+      if (fs.existsSync(file)) fs.unlinkSync(file)
+    }
+  })
+
   it('writes a call with no output to the ledger as a failed run with its real cost', async () => {
     const file = path.join(os.tmpdir(), `quickdraw-empty-${Date.now()}.jsonl`)
     const logger = new APICallLogger({ file, truncate: true })

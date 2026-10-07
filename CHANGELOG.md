@@ -10,8 +10,8 @@ install, import or script are marked Breaking.
 Everything below is relative to 1.0.4 (tag `v1.0.4`, commit `63ef1d2`). That
 commit is not on `main`: `main` restarts at root commit `e4fdd8e` (2026-07-07),
 whose tree is the 1.0.4 tree plus six README lines. The changes come from PRs
-#33 to #36 and #40. Version 1.0.5 was written into `package.json` and this
-file but never tagged or published; its notes are folded in here.
+#33 to #36, #40 and #43. Version 1.0.5 was written into `package.json` and
+this file but never tagged or published; its notes are folded in here.
 
 ### Removed
 
@@ -57,9 +57,12 @@ file but never tagged or published; its notes are folded in here.
   reported as `skipped: cost ceiling reached` (#36), and a later provider that
   does fit still runs (#40). In 1.0.4 every provider after the ceiling was
   reported as failed.
-- A call that streams back no output is a failed run, "no content received",
-  instead of a success with a 0 ms TTFT (#36). It is written to the ledger with
-  its real cost, and that cost counts in the provider total (#40).
+- A call that streams back no text is a failed run, "no content received",
+  instead of a success with a 0 ms TTFT (#36), whatever its usage block says
+  (#43). It is written to the ledger with its real cost, and that cost counts in
+  the provider total (#40). A run whose text arrives with no output-token count
+  is kept, with its output estimated at half a token per character and marked
+  `token_source: "estimate"` (#43).
 - Ledger rows also record `ttft_ms`, `duration_ms` and `token_source` (#33).
 - The fallback completion-token estimate is the answer's length divided by 4,
   not a count of streamed events (#33).

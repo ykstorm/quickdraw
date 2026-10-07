@@ -32,17 +32,30 @@ function streamFor(
     : openaiStream(prompt, onChunk, model)
 }
 
-/** Rough prompt-token estimate used only to size the pre-call cost reservation. */
+/**
+ * Rough token estimate: the prompt side of the pre-call cost reservation, and
+ * the output count of a run whose text arrived without one.
+ */
 // Deliberately high: English runs near four characters per token, code and
 // other scripts fewer, so half a token per character leaves the ceiling check
 // erring on the side of not calling. The real cost replaces it after the call.
-function estimatePromptTokens(prompt: string): number {
-  return Math.ceil(prompt.length / 2)
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 2)
 }
 
 const emptyMetrics = (): StreamMetrics => ({ ttft_ms: 0, tps: 0, total_duration_ms: 0, token_count: 0 })
 
 const NO_CONTENT = 'no content received'
+
+/**
+ * The stream result as it is recorded. Text that arrived with no output-token
+ * count (no usage block) is kept, and its output tokens are estimated and
+ * marked as an estimate.
+ */
+function withOutputCount(r: ProviderStreamResult): ProviderStreamResult {
+  if (r.text.length === 0 || r.completion_tokens > 0) return r
+  return { ...r, completion_tokens: estimateTokens(r.text), token_source: 'estimate' }
+}
 
 interface RunContext {
   logger: APICallLogger
@@ -65,20 +78,21 @@ async function runOnce(
 
   // Reserve budget BEFORE the call using a pessimistic estimate (max output
   // tokens). If this throws CostCeilingError, no network call is made.
-  const reserved = costTracker.reserve(provider, model, estimatePromptTokens(prompt), MAX_OUTPUT_TOKENS)
+  const reserved = costTracker.reserve(provider, model, estimateTokens(prompt), MAX_OUTPUT_TOKENS)
 
   try {
     const streamStart = Date.now()
-    const streamResult = await streamFor(provider, prompt, onChunk, model)
+    const streamResult = withOutputCount(await streamFor(provider, prompt, onChunk, model))
     const latency_ms = Date.now() - streamStart
 
     // A completed call always costs real money: settle with the actual cost and
     // log that cost, never a fabricated $0.
     const cost = costTracker.priceOf(model, streamResult.prompt_tokens, streamResult.completion_tokens)
     costTracker.settle(reserved, cost)
-    // A 200 with no content would otherwise count as a run with a 0 ms TTFT, so
-    // it is a failed run. It was still paid for, so it is logged like any other.
-    const empty = streamResult.completion_tokens === 0
+    // A 200 with no text would otherwise count as a run with a 0 ms TTFT, so it
+    // is a failed run, whatever the usage block says. It was still paid for, so
+    // it is logged like any other.
+    const empty = streamResult.text.length === 0
 
     logger.log({
       timestamp: new Date().toISOString(),
