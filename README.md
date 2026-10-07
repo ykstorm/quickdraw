@@ -156,7 +156,7 @@ estimate.
 ## Supported
 
 - Percentile reporting: TTFT and TPS as avg / p50 / p95 / p99 across runs.
-- Regression diffing: `quickdraw diff <run1.json> <run2.json>` compares the averages of two saved runs. A TTFT, TPS or cost change past the threshold, or a provider going from success to failure, is listed under REGRESSIONS and makes the exit code 2. A model change is listed under Changed and does not change the exit code on its own: running a different model is a deliberate change, not a regression, and the metric checks still apply to the new numbers.
+- Regression diffing: `quickdraw diff <run1.json> <run2.json>` compares two saved runs: the TTFT and TPS averages and p95s, and the cost. A change past the threshold in any of them (TTFT or cost up, TPS down), or a provider going from success to failure, is listed under REGRESSIONS and makes the exit code 2, so a p95 that got worse counts even when the average held. `--threshold` is a percent, default 10; a negative or non-numeric value exits 1. A model change is listed under Changed and does not change the exit code on its own: running a different model is a deliberate change, not a regression, and the metric checks still apply to the new numbers.
 - Token counts from each provider's `usage` field when available, falling back to a char/4 estimate.
 - API-key preflight: a missing key produces a clean `Set <ENV_VAR>` message and exit 1, not a `Bearer undefined` 401 dump.
 

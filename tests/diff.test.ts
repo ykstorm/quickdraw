@@ -47,6 +47,11 @@ describe('parseRunFile', () => {
     const badAvg = { ...entry, metrics: { ttft_ms: 100, tps: 50 }, ttft: { avg: 'fast' } }
     expect(() => parseRunFile(JSON.stringify([badAvg]))).toThrow(/entry 0 has a non-numeric "ttft.avg"/)
   })
+  it('rejects a non-numeric p95, which diffRuns now compares', () => {
+    const entry = { provider: 'openai', model: 'gpt-4o-mini', metrics: { ttft_ms: 100, tps: 50 }, cost_usd: 0.001 }
+    const badP95 = { ...entry, tps: { avg: 50, p95: 'n/a' } }
+    expect(() => parseRunFile(JSON.stringify([badP95]))).toThrow(/entry 0 has a non-numeric "tps.p95"/)
+  })
 })
 
 describe('diffRuns', () => {
@@ -79,6 +84,32 @@ describe('diffRuns', () => {
     const d = diffRuns(before, after, 10)
     expect(d.regressed).toBe(true)
     expect(d.providers[0].regressions.join(' ')).toMatch(/TPS down 50%/)
+  })
+
+  it('flags a p95 TTFT regression when the average holds', () => {
+    const before = [mk({ ttft: { avg: 100, p50: 100, p95: 100, p99: 100 } })]
+    const after = [mk({ ttft: { avg: 100, p50: 100, p95: 900, p99: 900 } })]
+    const d = diffRuns(before, after, 10)
+    expect(d.regressed).toBe(true)
+    expect(d.providers[0].regressions).toEqual(['TTFT p95 up 800%'])
+    expect(formatDiff(d)).toContain('  TTFT p95: 100 -> 900 ms  (+800 ms, +800%)')
+  })
+
+  it('flags a p95 TPS drop when the average holds', () => {
+    const before = [mk({ tps: { avg: 50, p50: 50, p95: 80, p99: 80 } })]
+    const after = [mk({ tps: { avg: 50, p50: 50, p95: 40, p99: 40 } })]
+    const d = diffRuns(before, after, 10)
+    expect(d.regressed).toBe(true)
+    expect(d.providers[0].regressions).toEqual(['TPS p95 down 50%'])
+  })
+
+  it('compares only the averages when a run file has no percentiles', () => {
+    const before = [mk({ ttft: undefined, tps: undefined })]
+    const after = [mk({ ttft: undefined, tps: undefined })]
+    const d = diffRuns(before, after, 10)
+    expect(d.regressed).toBe(false)
+    expect(d.providers[0].ttftP95).toBeUndefined()
+    expect(formatDiff(d)).not.toMatch(/p95/)
   })
 
   it('flags a success -> failure regression', () => {

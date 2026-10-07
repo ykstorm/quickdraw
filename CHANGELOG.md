@@ -74,12 +74,14 @@ this file but never tagged or published; its notes are folded in here.
   exit code on its own; a slower run on the new model still exits 2 (#40). A
   rise from a zero baseline counts as a regression (#36). A run file whose
   entries lack the fields `diff` reads is rejected with a message naming the
-  entry (#33, #40).
+  entry (#33, #40). The TTFT and TPS p95 are compared as well as the averages,
+  and a regression in either counts (#43).
 - Provider requests time out after `QUICKDRAW_TIMEOUT_MS`, default 120 s, and
   the timeout is a failed run (#33).
 - `--runs` and `--max-prompt-bytes` take whole numbers only (#36); `--threshold`
-  must be a number; a prompt path that is not a file, or is larger than
-  `--max-prompt-bytes` (default 1 MiB), is rejected before it is read (#33).
+  must be a number of 0 or more, so a negative one exits 1 (#43); a prompt path
+  that is not a file, or is larger than `--max-prompt-bytes` (default 1 MiB), is
+  rejected before it is read (#33).
 - `package.json` declares Node 20 or later, which commander 14 already needed
   (#36).
 

@@ -12,7 +12,11 @@ export interface ProviderDiff {
   provider: string
   model: string
   ttft?: MetricDelta
+  /** p95 TTFT, when both runs carry percentiles. */
+  ttftP95?: MetricDelta
   tps?: MetricDelta
+  /** p95 TPS, when both runs carry percentiles. */
+  tpsP95?: MetricDelta
   cost?: MetricDelta
   /** Regressions: a metric past the threshold, or success -> failure. Each sets `regressed`. */
   regressions: string[]
@@ -27,7 +31,10 @@ export interface ProviderDiff {
 
 export interface DiffResult {
   providers: ProviderDiff[]
-  /** True if TTFT, TPS or cost moved past the threshold, or a success became a failure. */
+  /**
+   * True if the TTFT or TPS average or p95, or the cost, moved past the
+   * threshold, or a success became a failure.
+   */
   regressed: boolean
 }
 
@@ -55,12 +62,15 @@ function checkMetrics(metrics: unknown, i: number): void {
   }
 }
 
-/** An optional `ttft` / `tps` block is read through its `avg`, which must be a number when set. */
+/** An optional `ttft` / `tps` block is read through its `avg` and `p95`, which must be numbers when set. */
 function checkPercentiles(e: Record<string, unknown>, i: number): void {
   for (const key of ['ttft', 'tps']) {
-    const avg = (e[key] as { avg?: unknown } | null | undefined)?.avg
-    if (avg != null && !isNumber(avg)) {
-      throw new Error(`Run file entry ${i} has a non-numeric "${key}.avg".`)
+    const block = e[key] as Record<string, unknown> | null | undefined
+    for (const stat of ['avg', 'p95']) {
+      const value = block?.[stat]
+      if (value != null && !isNumber(value)) {
+        throw new Error(`Run file entry ${i} has a non-numeric "${key}.${stat}".`)
+      }
     }
   }
 }
@@ -110,20 +120,41 @@ function avgOf(r: BenchmarkResult, key: 'ttft' | 'tps'): number {
   return r[key]?.avg ?? r.metrics[METRIC_FIELD[key]]
 }
 
-/** Metric regressions past `threshold` percent: TTFT and cost going up, TPS going down. */
-function metricRegressions(ttft: MetricDelta, tps: MetricDelta, cost: MetricDelta, threshold: number): string[] {
-  const found: string[] = []
-  // pct is Infinity when the baseline was 0, which is a regression too.
-  if (ttft.pct > threshold) found.push(`TTFT up ${ttft.pct}%`)
-  if (Number.isFinite(tps.pct) && tps.pct < -threshold) found.push(`TPS down ${Math.abs(tps.pct)}%`)
-  if (cost.pct > threshold) found.push(`cost up ${cost.pct}%`)
-  return found
+/** The p95 delta for a metric, or undefined when either run has no percentiles (an older file, or a failed run). */
+function p95Delta(r1: BenchmarkResult, r2: BenchmarkResult, key: 'ttft' | 'tps'): MetricDelta | undefined {
+  const before = r1[key]?.p95
+  const after = r2[key]?.p95
+  return isNumber(before) && isNumber(after) ? delta(before, after) : undefined
+}
+
+type Deltas = Pick<ProviderDiff, 'ttft' | 'ttftP95' | 'tps' | 'tpsP95' | 'cost'>
+
+/** For a metric where higher is worse. pct is Infinity when the baseline was 0, which is a regression too. */
+function rose(label: string, m: MetricDelta | undefined, threshold: number): string[] {
+  return m && m.pct > threshold ? [`${label} up ${m.pct}%`] : []
+}
+
+/** For a metric where lower is worse. A rise from a zero baseline is infinite, and it is not a drop. */
+function fell(label: string, m: MetricDelta | undefined, threshold: number): string[] {
+  return m && Number.isFinite(m.pct) && m.pct < -threshold ? [`${label} down ${Math.abs(m.pct)}%`] : []
+}
+
+/** Metric regressions past `threshold` percent: TTFT and cost going up, TPS going down, on the average or the p95. */
+function metricRegressions(d: Deltas, threshold: number): string[] {
+  return [
+    ...rose('TTFT', d.ttft, threshold),
+    ...rose('TTFT p95', d.ttftP95, threshold),
+    ...fell('TPS', d.tps, threshold),
+    ...fell('TPS p95', d.tpsP95, threshold),
+    ...rose('cost', d.cost, threshold),
+  ]
 }
 
 /**
- * Compare one provider across two runs. Returns the per-provider diff and
- * whether it counts as a regression. `threshold` is the percent a metric must
- * worsen before it is flagged.
+ * Compare one provider across two runs: the TTFT and TPS averages and p95s,
+ * and the cost. Returns the per-provider diff and whether it counts as a
+ * regression. `threshold` is the percent a metric must worsen before it is
+ * flagged.
  */
 export function compareProvider(
   r1: BenchmarkResult,
@@ -133,21 +164,25 @@ export function compareProvider(
   const changes: string[] = r1.model !== r2.model ? [`model ${r1.model} -> ${r2.model}`] : []
   const regressions: string[] = r1.success && !r2.success ? ['success -> failure'] : []
 
-  const ttft = delta(avgOf(r1, 'ttft'), avgOf(r2, 'ttft'))
-  const tps = delta(avgOf(r1, 'tps'), avgOf(r2, 'tps'))
-  const cost = delta(r1.cost_usd, r2.cost_usd)
-  regressions.push(...metricRegressions(ttft, tps, cost, threshold))
+  const deltas: Deltas = {
+    ttft: delta(avgOf(r1, 'ttft'), avgOf(r2, 'ttft')),
+    ttftP95: p95Delta(r1, r2, 'ttft'),
+    tps: delta(avgOf(r1, 'tps'), avgOf(r2, 'tps')),
+    tpsP95: p95Delta(r1, r2, 'tps'),
+    cost: delta(r1.cost_usd, r2.cost_usd),
+  }
+  regressions.push(...metricRegressions(deltas, threshold))
 
   return {
-    diff: { provider: r2.provider, model: r2.model, ttft, tps, cost, regressions, changes },
+    diff: { provider: r2.provider, model: r2.model, ...deltas, regressions, changes },
     regressed: regressions.length > 0,
   }
 }
 
 /**
- * Regression-diff two benchmark runs. `regressionThresholdPct` controls how much
- * TTFT/cost must worsen (or TPS drop) before it is flagged. Default 10%. Entries
- * are aligned by provider/model.
+ * Regression-diff two benchmark runs. `regressionThresholdPct` is how far, in
+ * percent, the TTFT or TPS average or p95, or the cost, must worsen before it
+ * is flagged. Default 10%. Entries are aligned by provider/model.
  */
 export function diffRuns(
   run1: BenchmarkResult[],
@@ -190,28 +225,34 @@ export function diffRuns(
 
 const sign = (n: number) => (n > 0 ? `+${n}` : `${n}`)
 
+/** The report rows, in order: label, delta field, unit, and a prefix for the values. */
+const ROWS: [label: string, key: keyof Deltas, unit: string, prefix: string][] = [
+  ['TTFT:', 'ttft', ' ms', ''],
+  ['TTFT p95:', 'ttftP95', ' ms', ''],
+  ['TPS: ', 'tps', '', ''],
+  ['TPS p95: ', 'tpsP95', '', ''],
+  ['cost:', 'cost', '', '$'],
+]
+
+const deltaLine = (label: string, m: MetricDelta, unit: string, prefix: string): string =>
+  `  ${label} ${prefix}${m.before} -> ${prefix}${m.after}${unit}  (${sign(m.delta)}${unit}, ${sign(m.pct)}%)`
+
+/** The report lines for one provider. */
+function providerLines(p: ProviderDiff): string[] {
+  if (p.onlyIn) return [`${p.provider} (${p.model}): present only in ${p.onlyIn}`]
+  const lines = [`${p.provider} (${p.model}):`]
+  for (const [label, key, unit, prefix] of ROWS) {
+    const m = p[key]
+    if (m) lines.push(deltaLine(label, m, unit, prefix))
+  }
+  if (p.changes.length > 0) lines.push(`  Changed: ${p.changes.join('; ')}`)
+  lines.push(p.regressions.length > 0 ? `  REGRESSIONS: ${p.regressions.join('; ')}` : '  no regressions')
+  return lines
+}
+
 /** Render a DiffResult as a plain-text report. */
 export function formatDiff(d: DiffResult): string {
-  const lines: string[] = []
-  lines.push('Regression diff (run1 -> run2)')
-  lines.push('-'.repeat(60))
-  for (const p of d.providers) {
-    if (p.onlyIn) {
-      lines.push(`${p.provider} (${p.model}): present only in ${p.onlyIn}`)
-      continue
-    }
-    lines.push(`${p.provider} (${p.model}):`)
-    if (p.ttft) lines.push(`  TTFT: ${p.ttft.before} -> ${p.ttft.after} ms  (${sign(p.ttft.delta)} ms, ${sign(p.ttft.pct)}%)`)
-    if (p.tps) lines.push(`  TPS:  ${p.tps.before} -> ${p.tps.after}  (${sign(p.tps.delta)}, ${sign(p.tps.pct)}%)`)
-    if (p.cost) lines.push(`  cost: $${p.cost.before} -> $${p.cost.after}  (${sign(p.cost.delta)}, ${sign(p.cost.pct)}%)`)
-    if (p.changes.length > 0) lines.push(`  Changed: ${p.changes.join('; ')}`)
-    if (p.regressions.length > 0) {
-      lines.push(`  REGRESSIONS: ${p.regressions.join('; ')}`)
-    } else {
-      lines.push('  no regressions')
-    }
-  }
-  lines.push('-'.repeat(60))
-  lines.push(d.regressed ? 'RESULT: regressions detected' : 'RESULT: no regressions')
-  return lines.join('\n')
+  const rule = '-'.repeat(60)
+  const result = d.regressed ? 'RESULT: regressions detected' : 'RESULT: no regressions'
+  return ['Regression diff (run1 -> run2)', rule, ...d.providers.flatMap(providerLines), rule, result].join('\n')
 }
