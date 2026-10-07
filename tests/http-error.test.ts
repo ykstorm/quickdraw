@@ -21,6 +21,18 @@ describe('redactSecrets', () => {
   it('redacts Bearer tokens', () => {
     expect(redactSecrets('Authorization: Bearer supersecrettoken')).not.toMatch(/supersecrettoken/)
   })
+
+  it.each(['Bearer', 'bearer', 'BEARER', 'bEaReR'])('redacts the token after "%s"', (scheme) => {
+    const out = redactSecrets(`authorization: ${scheme} supersecrettoken`)
+    expect(out).toBe('authorization: [REDACTED]')
+  })
+
+  it('keeps a redacted JSON document parseable for a lower-case bearer too', () => {
+    const doc = JSON.stringify({ error: 'got 401 with authorization: bearer abc.def-123' })
+    const out = redactSecrets(doc)
+    expect(() => JSON.parse(out)).not.toThrow()
+    expect(out).not.toContain('abc.def-123')
+  })
 })
 
 describe('sanitizeHttpError', () => {
