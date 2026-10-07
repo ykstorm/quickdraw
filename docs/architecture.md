@@ -41,6 +41,10 @@ cross the ceiling is never started. The reservation is an estimate (half a token
 per prompt character plus the maximum output), so settled spend can exceed the
 ceiling by the amount one call cost beyond its estimate; it cannot run away.
 
+A refused reservation stops that provider: the run is recorded as `skipped: cost
+ceiling reached` and its later runs are not attempted. The next provider makes
+its own reservation, so it still runs if its estimate fits what is left.
+
 ## Why JSON Lines
 
 The ledger (`api_calls.jsonl`) is one row per call, written as each call

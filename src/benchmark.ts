@@ -175,20 +175,16 @@ export async function runBenchmark(config: BenchmarkConfig, deps: BenchmarkDeps 
     onProgress: deps.onProgress ?? ((m: string) => console.log(m)),
   }
   const results: BenchmarkResult[] = []
-  let ceilingHit = false
 
   for (const provider of config.providers) {
     const model = resolveModel(provider, config.model)
-    // Once the ceiling is hit, the remaining providers are skipped, not failed.
-    const run: ProviderRun = ceilingHit ? { perRun: [skipped(provider, model)], ceilingHit } : await benchProvider(provider, model, ctx)
-    ceilingHit = run.ceilingHit
-    results.push(aggregate(provider, model, run.perRun))
+    // Every provider makes its own reservation, so one whose estimate fits the
+    // remaining budget still runs after an earlier provider hit the ceiling.
+    results.push(aggregate(provider, model, await benchProvider(provider, model, ctx)))
   }
 
   return results
 }
-
-type ProviderRun = { perRun: RunResult[]; ceilingHit: boolean }
 
 interface BenchContext {
   config: BenchmarkConfig
@@ -201,8 +197,11 @@ const skipped = (provider: string, model: string): RunResult => ({
   provider, model, metrics: emptyMetrics(), cost_usd: 0, success: false, error: 'skipped: cost ceiling reached',
 })
 
-/** All runs for one provider, stopping at the cost ceiling. */
-async function benchProvider(provider: ProviderName, model: string, ctx: BenchContext): Promise<ProviderRun> {
+/**
+ * All runs for one provider. Stops at the first reservation the ceiling refuses,
+ * which is recorded as a skipped run, or once settled spend reaches the ceiling.
+ */
+async function benchProvider(provider: ProviderName, model: string, ctx: BenchContext): Promise<RunResult[]> {
   const { config, costTracker, logger, onProgress } = ctx
   const perRun: RunResult[] = []
 
@@ -217,18 +216,18 @@ async function benchProvider(provider: ProviderName, model: string, ctx: BenchCo
       if (!(err instanceof CostCeilingError)) throw err
       onProgress(`  skipped: cost ceiling reached (${label})`)
       perRun.push(skipped(provider, model))
-      return { perRun, ceilingHit: true }
+      return perRun
     }
 
     perRun.push(result)
     onProgress(describeRun(label, result))
-    // Stop once settled spend has reached the ceiling.
+    // Stop this provider once settled spend has reached the ceiling.
     if (result.success && costTracker.spent >= costTracker.ceilingUsd) {
-      onProgress('Cost ceiling reached. Halting benchmark.')
-      return { perRun, ceilingHit: true }
+      onProgress(`Cost ceiling reached. No more runs for ${provider}.`)
+      return perRun
     }
   }
-  return { perRun, ceilingHit: false }
+  return perRun
 }
 
 function describeRun(label: string, result: RunResult): string {

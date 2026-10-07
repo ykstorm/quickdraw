@@ -70,11 +70,27 @@ describe('runBenchmark', () => {
     expect(openaiStream).toHaveBeenCalledWith('CUSTOM PROMPT', undefined, 'gpt-4o-mini')
   })
 
-  it('reports a provider after the ceiling hit as skipped, not failed', async () => {
+  it('still runs a later provider whose estimate fits after the ceiling stopped an earlier one', async () => {
+    // Haiku reserves about $0.00256 a call, so a $0.0027 cap allows one call and
+    // refuses the second. A gpt-4o-mini reservation is about $0.0003, which fits
+    // the remaining budget, so openai runs all three times.
     anthropicStream.mockResolvedValue(streamResult({ prompt_tokens: 10, completion_tokens: 50 }))
     openaiStream.mockResolvedValue(streamResult())
     const results = await runBenchmark({ providers: ['anthropic', 'openai'], runs: 3, guardrails: false, costCap: 0.0027, prompt: 'hi' })
-    expect(openaiStream).toHaveBeenCalledTimes(0)
+    expect(anthropicStream).toHaveBeenCalledTimes(1)
+    expect(results[0].perRun?.map((r) => r.error ?? 'ok')).toEqual(['ok', 'skipped: cost ceiling reached'])
+    expect(openaiStream).toHaveBeenCalledTimes(3)
+    expect(results[1].success).toBe(true)
+    expect(results[1].runs).toBe(3)
+  })
+
+  it('reports a provider whose estimate does not fit as skipped, not failed', async () => {
+    // The openai runs fit a $0.002 cap; one Haiku reservation (about $0.00256) does not.
+    anthropicStream.mockResolvedValue(streamResult())
+    openaiStream.mockResolvedValue(streamResult())
+    const results = await runBenchmark({ providers: ['openai', 'anthropic'], runs: 3, guardrails: false, costCap: 0.002, prompt: 'hi' })
+    expect(openaiStream).toHaveBeenCalledTimes(3)
+    expect(anthropicStream).toHaveBeenCalledTimes(0)
     expect(results[1].success).toBe(false)
     expect(results[1].error).toBe('skipped: cost ceiling reached')
   })
